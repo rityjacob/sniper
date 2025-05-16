@@ -1,0 +1,25 @@
+{
+  "name": "sniper",
+  "version": "1.0.0",
+  "description": "A custom copy trading bot built using Node.js that connects to the Solana blockchain via WebSocket.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rityjacob/sniper.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/rityjacob/sniper/issues"
+  },
+  "homepage": "https://github.com/rityjacob/sniper#readme",
+  "dependencies": {
+    "@solana/web3.js": "^1.98.2",
+    "dotenv": "^16.5.0",
+    "ws": "^8.18.2"
+  }
+}
