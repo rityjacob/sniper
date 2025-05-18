@@ -26,7 +26,23 @@ ws.on("open", () => {
 
 ws.on("message", (data) => {
   console.log("New message:");
-  console.log(data.toString());
+  const strData = data.toString();
+  console.log(strData);
+
+  try {
+    const parsed = JSON.parse(strData);
+
+    const lamports = parsed?.params?.result?.value?.lamports;
+
+    if (lamports !== undefined) {
+      console.log("new balance: " + lamports / 1000000000 + " SOL");
+    } else {
+      console.log("lamports not found in message");
+    }
+
+  } catch (e) {
+    console.error("Failed to parse message:", e);
+  }
 });
 
 ws.on("error", (error: Error) => {
