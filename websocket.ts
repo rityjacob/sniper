@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 
 const ACCOUNT = "3qBKimmvwd2HaXCwemH62SDqgWtXXcZ2q4321SEWBSw5";
+// const ACCOUNT2 = "AJ3tpVZEjfUdvy3o7YB3vDSFpxUifWYcVjcdnJpv3tag";
 const ENDPOINT = "wss://api.devnet.solana.com/";
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -28,6 +29,7 @@ function createWebSocket() {
   ws.on("open", () => {
     console.log("✅ new connection!");
     subscribeToAccount(ws, ACCOUNT);
+    //subscribeToAccount(ws, ACCOUNT2);
 
     // Start ping interval
     pingInterval = setInterval(() => {
