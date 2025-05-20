@@ -3,6 +3,7 @@ import {
     TRANSACTION_CONFIG,
     SAFETY_CONFIG 
 } from './config.js';
+import { walletManager } from './wallet.js';
 
 interface TokenInfo {
     address: string;
@@ -41,7 +42,7 @@ class DexManager {
                     inputMint: 'So11111111111111111111111111111111111111112', // SOL
                     outputMint: tokenAddress,
                     amount: amount * 1e9, // Convert to lamports
-                    slippageBps: TRANSACTION_CONFIG.slippageTolerance * 100
+                    slippageBps: TRANSACTION_CONFIG.maxSlippage * 100
                 })
             });
             
@@ -76,7 +77,7 @@ class DexManager {
         return 0;
     }
 
-    private async calculatePriceImpact(
+    public async calculatePriceImpact(
         tokenAddress: string,
         amount: number
     ): Promise<number> {

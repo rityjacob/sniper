@@ -4,10 +4,105 @@ import {
     TARGET_WALLET_ADDRESS,
     MONITORING_CONFIG 
 } from './config.js';
+import { EventEmitter } from 'events';
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 let pingInterval: NodeJS.Timeout;
 let reconnectAttempts = 0;
+
+class WebSocketManager extends EventEmitter {
+    private ws: WebSocket;
+    
+    constructor() {
+        super();
+        this.ws = new WebSocket(WS_URL);
+        this.setupWebSocket();
+    }
+
+    private setupWebSocket() {
+        this.ws.on("open", () => {
+            console.log("✅ WebSocket connection established!");
+            reconnectAttempts = 0;
+            subscribeToAccount(this.ws, TARGET_WALLET_ADDRESS);
+
+            // Start ping interval
+            pingInterval = setInterval(() => {
+                if (this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.ping();
+                    if (MONITORING_CONFIG.logLevel === 'debug') {
+                        console.log("📡 Sent ping");
+                    }
+                }
+            }, MONITORING_CONFIG.wsReconnectInterval);
+        });
+
+        this.ws.on("message", (data) => {
+            if (MONITORING_CONFIG.enableDetailedLogging) {
+                console.log("📥 New message received");
+            }
+
+            try {
+                const parsed = JSON.parse(data.toString());
+                const lamports = parsed?.params?.result?.value?.lamports;
+
+                if (lamports !== undefined) {
+                    console.log(`💰 Target wallet balance: ${lamports / LAMPORTS_PER_SOL} SOL`);
+                    // Here you'll add logic to detect transactions
+                }
+
+                // Check if it's a transaction notification
+                if (parsed?.params?.result?.value?.data) {
+                    const transactionData = parsed.params.result.value.data;
+                    
+                    // Check if it's a token transaction
+                    if (this.isTokenTransaction(transactionData)) {
+                        const tokenInfo = this.extractTokenInfo(transactionData);
+                        
+                        // Emit transaction event
+                        this.emit('transaction', {
+                            tokenAddress: tokenInfo.address,
+                            amount: tokenInfo.amount,
+                            timestamp: Date.now()
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error("❌ Failed to parse message:", e);
+            }
+        });
+
+        this.ws.on("error", (error: Error) => {
+            console.error(`❗ WebSocket error: ${error.message}`);
+        });
+
+        this.ws.on("close", () => {
+            console.log("🔌 Connection closed!");
+            clearInterval(pingInterval);
+
+            if (reconnectAttempts < MONITORING_CONFIG.maxWsReconnectAttempts) {
+                reconnectAttempts++;
+                console.log(`Attempting to reconnect (${reconnectAttempts}/${MONITORING_CONFIG.maxWsReconnectAttempts})...`);
+                setTimeout(() => new WebSocketManager(), MONITORING_CONFIG.wsReconnectInterval);
+            } else {
+                console.error("❌ Maximum reconnection attempts reached!");
+                // Implement emergency stop if needed
+            }
+        });
+    }
+
+    private isTokenTransaction(data: any): boolean {
+        return data.program === 'spl-token' || 
+               data.program === 'token' ||
+               data.program === 'token-2022';
+    }
+
+    private extractTokenInfo(data: any): { address: string; amount: number } {
+        return {
+            address: data.tokenAddress,
+            amount: data.amount
+        };
+    }
+}
 
 function subscribeToAccount(ws: WebSocket, account: string) {
     const requestdata = {
@@ -25,95 +120,6 @@ function subscribeToAccount(ws: WebSocket, account: string) {
     ws.send(JSON.stringify(requestdata));
 }
 
-function createWebSocket() {
-    const ws = new WebSocket(WS_URL);
-
-    ws.on("open", () => {
-        console.log("✅ WebSocket connection established!");
-        reconnectAttempts = 0;
-        subscribeToAccount(ws, TARGET_WALLET_ADDRESS);
-
-        // Start ping interval
-        pingInterval = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.ping();
-                if (MONITORING_CONFIG.logLevel === 'debug') {
-                    console.log("📡 Sent ping");
-                }
-            }
-        }, MONITORING_CONFIG.wsReconnectInterval);
-    });
-
-    ws.on("message", (data) => {
-        if (MONITORING_CONFIG.enableDetailedLogging) {
-            console.log("📥 New message received");
-        }
-
-        try {
-            const parsed = JSON.parse(data.toString());
-            const lamports = parsed?.params?.result?.value?.lamports;
-
-            if (lamports !== undefined) {
-                console.log(`💰 Target wallet balance: ${lamports / LAMPORTS_PER_SOL} SOL`);
-                // Here you'll add logic to detect transactions
-            }
-
-            // Check if it's a transaction notification
-            if (parsed?.params?.result?.value?.data) {
-                const transactionData = parsed.params.result.value.data;
-                
-                // Check if it's a token transaction
-                if (this.isTokenTransaction(transactionData)) {
-                    const tokenInfo = this.extractTokenInfo(transactionData);
-                    
-                    // Emit transaction event
-                    this.emit('transaction', {
-                        tokenAddress: tokenInfo.address,
-                        amount: tokenInfo.amount,
-                        timestamp: Date.now()
-                    });
-                }
-            }
-        } catch (e) {
-            console.error("❌ Failed to parse message:", e);
-        }
-    });
-
-    ws.on("error", (error: Error) => {
-        console.error(`❗ WebSocket error: ${error.message}`);
-    });
-
-    ws.on("close", () => {
-        console.log("🔌 Connection closed!");
-        clearInterval(pingInterval);
-
-        if (reconnectAttempts < MONITORING_CONFIG.maxWsReconnectAttempts) {
-            reconnectAttempts++;
-            console.log(`Attempting to reconnect (${reconnectAttempts}/${MONITORING_CONFIG.maxWsReconnectAttempts})...`);
-            setTimeout(createWebSocket, MONITORING_CONFIG.wsReconnectInterval);
-        } else {
-            console.error("❌ Maximum reconnection attempts reached!");
-            // Implement emergency stop if needed
-        }
-    });
-}
-
 export function initializeWebSocket() {
-    createWebSocket();
-}
-
-private isTokenTransaction(data: any): boolean {
-    // Check if transaction involves token program
-    return data.program === 'spl-token' || 
-           data.program === 'token' ||
-           data.program === 'token-2022';
-}
-
-private extractTokenInfo(data: any): { address: string; amount: number } {
-    // Extract token address and amount from transaction data
-    // This will need to be customized based on the transaction structure
-    return {
-        address: data.tokenAddress,
-        amount: data.amount
-    };
+    new WebSocketManager();
 }

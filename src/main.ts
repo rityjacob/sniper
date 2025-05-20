@@ -8,6 +8,7 @@ import { initializeWebSocket } from './websocket.js';
 import { transactionManager } from './transaction.js';
 import { dexManager } from './dex.js';
 import { walletManager } from './wallet.js';
+import { Transaction } from '@solana/web3.js';
 
 class Sniper {
     private isRunning: boolean = false;
@@ -34,7 +35,6 @@ class Sniper {
         console.log('Trading bot stopped');
     }
 
-
     async handleTransaction(transaction: any) {
         if (!this.isRunning) return;
 
@@ -52,6 +52,55 @@ class Sniper {
         }
     }
 
+    private async emergencyStop() {
+        console.log("🛑 Emergency stop triggered!");
+        this.stop();
+        
+        // Cancel any pending transactions
+        await this.cancelPendingTransactions();
+        
+        // Log final state
+        console.log("Final wallet balance:", await walletManager.getBalance());
+    }
+
+    private async cancelPendingTransactions() {
+        try {
+            // Get recent blockhash
+            const { blockhash } = await walletManager.getLatestBlockhash();
+            
+            // Create cancel transaction
+            const cancelTx = new Transaction().add(
+                // Add cancel instruction here
+            );
+            
+            // Send cancel transaction
+            await walletManager.signAndSendTransaction(cancelTx);
+        } catch (error) {
+            console.error("❌ Failed to cancel pending transactions:", error);
+        }
+    }
+
+    private async handleError(error: Error) {
+        console.error("❌ Error occurred:", error);
+        
+        // Check if error is critical
+        if (this.isCriticalError(error)) {
+            await this.emergencyStop();
+        }
+    }
+
+    private isCriticalError(error: Error): boolean {
+        // Define what constitutes a critical error
+        const criticalErrors = [
+            "insufficient funds",
+            "invalid transaction",
+            "connection lost"
+        ];
+        
+        return criticalErrors.some(msg => 
+            error.message.toLowerCase().includes(msg)
+        );
+    }
 }
 
 const bot = new Sniper();

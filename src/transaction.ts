@@ -49,7 +49,7 @@ class TransactionManager {
             // Check price impact
             const priceImpact = await dexManager.calculatePriceImpact(
                 tx.tokenAddress,
-                tx.amount
+                Number(tx.amount) 
             );
             if (priceImpact > DEX_CONFIG.maxPriceImpact) {
                 console.log("⚠️ Price impact too high");

@@ -66,16 +66,58 @@ class WalletManager {
             );
 
             // Wait for confirmation
-            await this.connection.confirmTransaction(signature, {
-                commitment: 'confirmed',
-                maxRetries: TRANSACTION_CONFIG.maxRetries
-            });
+            await this.connection.confirmTransaction({
+                signature,
+                blockhash: (await this.connection.getLatestBlockhash()).blockhash,
+                lastValidBlockHeight: (await this.connection.getLatestBlockhash()).lastValidBlockHeight
+            }, 'confirmed');
 
             return signature;
         } catch (error) {
             console.error("❌ Transaction failed:", error);
             throw error;
         }
+    }
+
+    async calculateOptimalTradeAmount(tokenAddress: string): Promise<number> {
+        try {
+            const balance = await this.getBalance();
+            const maxAmount = TRANSACTION_CONFIG.maxSolPerTrade;
+            
+            // Calculate optimal amount based on balance and max trade size
+            const optimalAmount = Math.min(
+                balance - TRANSACTION_CONFIG.minSolBalance,
+                maxAmount
+            );
+            
+            return optimalAmount;
+        } catch (error) {
+            console.error("❌ Failed to calculate optimal trade amount:", error);
+            throw error;
+        }
+    }
+
+    async estimateTransactionFee(): Promise<number> {
+        try {
+            const { blockhash } = await this.connection.getLatestBlockhash();
+            const message = new Transaction().add(
+                // Add a dummy instruction here
+            );
+            message.recentBlockhash = blockhash;
+            
+            const fee = await this.connection.getFeeForMessage(message.compileMessage());
+            return Number(fee) / 1e9; // Convert to SOL
+        } catch (error) {
+            console.error("❌ Failed to estimate transaction fee:", error);
+            throw error;
+        }
+    }
+
+    public async getLatestBlockhash() {
+        return await this.connection.getLatestBlockhash();
+    }
+    public getPublicKey(): PublicKey {
+        return this.wallet.publicKey;
     }
 }
 
