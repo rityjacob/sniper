@@ -11,6 +11,7 @@ interface Transaction {
     timestamp: number;
     tokenAddress: string;
     amount: string;
+    targetAmount?: number;
 }
 
 class TransactionManager {
@@ -31,6 +32,22 @@ class TransactionManager {
         }
         
         this.updateTradeCounters();
+
+        // Add the buy amount calculation here
+        const targetAmount = Number(tx.amount);  // Convert string amount to number
+        const percentageAmount = targetAmount * TRANSACTION_CONFIG.percentageOfTargetTrade;
+        const finalAmount = Math.min(
+            percentageAmount,
+            TRANSACTION_CONFIG.maxBuyAmount,
+            TRANSACTION_CONFIG.maxSolPerTrade
+        );
+
+        console.log(`🎯 Target amount: ${targetAmount} SOL`);
+        console.log(`📊 Percentage amount: ${percentageAmount} SOL`);
+        console.log(`💰 Final buy amount: ${finalAmount} SOL`);
+
+        // Store the calculated amount for the swap
+        tx.amount = finalAmount.toString();
 
         try {
             // Check if token is blacklisted

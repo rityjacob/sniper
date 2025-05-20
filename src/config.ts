@@ -12,6 +12,8 @@ interface TransactionConfig {
     timeout: number;
     minSolBalance: number;
     maxSolPerTrade: number;
+    percentageOfTargetTrade: number;
+    maxBuyAmount: number;
 }
 
 interface DexConfig {
@@ -38,11 +40,13 @@ interface SafetyConfig {
 
 export const TRANSACTION_CONFIG: TransactionConfig = {
     maxSlippage: 0.20,
-    priorityFee: 100000,
+    priorityFee: 1000000,
     maxRetries: 3,
     timeout: 30000,
     minSolBalance: 0.01,
     maxSolPerTrade: 5,
+    percentageOfTargetTrade: 0.5,
+    maxBuyAmount: 20,
 };
 
 export const DEX_CONFIG: DexConfig = {

@@ -48,30 +48,35 @@ class WalletManager {
 
     async signAndSendTransaction(transaction: Transaction): Promise<string> {
         try {
+            // Get latest blockhash
+            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
+            transaction.recentBlockhash = blockhash;
+
             // Add priority fee
-            transaction.recentBlockhash = (
-                await this.connection.getLatestBlockhash()
-            ).blockhash;
-            
+            const priorityFee = TRANSACTION_CONFIG.priorityFee;
+            console.log(`💰 Adding priority fee: ${priorityFee} lamports`);
+
             // Sign transaction
             transaction.sign(this.wallet);
 
-            // Send transaction
+            // Send transaction with priority fee
             const signature = await this.connection.sendRawTransaction(
                 transaction.serialize(),
                 {
                     skipPreflight: false,
-                    maxRetries: TRANSACTION_CONFIG.maxRetries
+                    maxRetries: TRANSACTION_CONFIG.maxRetries,
+                    preflightCommitment: 'confirmed'
                 }
             );
 
             // Wait for confirmation
             await this.connection.confirmTransaction({
                 signature,
-                blockhash: (await this.connection.getLatestBlockhash()).blockhash,
-                lastValidBlockHeight: (await this.connection.getLatestBlockhash()).lastValidBlockHeight
+                blockhash,
+                lastValidBlockHeight
             }, 'confirmed');
 
+            console.log(`✅ Transaction confirmed: ${signature}`);
             return signature;
         } catch (error) {
             console.error("❌ Transaction failed:", error);
