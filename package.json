@@ -4,7 +4,10 @@
   "description": "A custom copy trading bot built using Node.js that connects to the Solana blockchain via WebSocket.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsc -w & node dist/main.js"
   },
   "repository": {
     "type": "git",
