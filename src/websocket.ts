@@ -57,6 +57,23 @@ function createWebSocket() {
                 console.log(`💰 Target wallet balance: ${lamports / LAMPORTS_PER_SOL} SOL`);
                 // Here you'll add logic to detect transactions
             }
+
+            // Check if it's a transaction notification
+            if (parsed?.params?.result?.value?.data) {
+                const transactionData = parsed.params.result.value.data;
+                
+                // Check if it's a token transaction
+                if (this.isTokenTransaction(transactionData)) {
+                    const tokenInfo = this.extractTokenInfo(transactionData);
+                    
+                    // Emit transaction event
+                    this.emit('transaction', {
+                        tokenAddress: tokenInfo.address,
+                        amount: tokenInfo.amount,
+                        timestamp: Date.now()
+                    });
+                }
+            }
         } catch (e) {
             console.error("❌ Failed to parse message:", e);
         }
@@ -83,4 +100,20 @@ function createWebSocket() {
 
 export function initializeWebSocket() {
     createWebSocket();
+}
+
+private isTokenTransaction(data: any): boolean {
+    // Check if transaction involves token program
+    return data.program === 'spl-token' || 
+           data.program === 'token' ||
+           data.program === 'token-2022';
+}
+
+private extractTokenInfo(data: any): { address: string; amount: number } {
+    // Extract token address and amount from transaction data
+    // This will need to be customized based on the transaction structure
+    return {
+        address: data.tokenAddress,
+        amount: data.amount
+    };
 }

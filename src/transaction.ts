@@ -1,8 +1,10 @@
 import { 
     TRANSACTION_CONFIG,
     SAFETY_CONFIG,
-    MONITORING_CONFIG 
+    MONITORING_CONFIG,
+    DEX_CONFIG
 } from './config.js';
+import { dexManager } from './dex.js';
 
 interface Transaction {
     signature: string;
@@ -31,11 +33,32 @@ class TransactionManager {
         this.updateTradeCounters();
 
         try {
-            // Add tx logic here
-            this.lastTradeTime = Date.now();
+            // Check if token is blacklisted
+            if (SAFETY_CONFIG.blacklistedTokens.includes(tx.tokenAddress)) {
+                console.log("🚫 Token is blacklisted");
+                return false;
+            }
+    
+            // Check token liquidity
+            const hasLiquidity = await dexManager.checkLiquidity(tx.tokenAddress);
+            if (!hasLiquidity) {
+                console.log("⚠️ Insufficient liquidity");
+                return false;
+            }
+    
+            // Check price impact
+            const priceImpact = await dexManager.calculatePriceImpact(
+                tx.tokenAddress,
+                tx.amount
+            );
+            if (priceImpact > DEX_CONFIG.maxPriceImpact) {
+                console.log("⚠️ Price impact too high");
+                return false;
+            }
+    
             return true;
         } catch (error) {
-            console.error("Error processing transaction:", error);
+            console.error("❌ Transaction validation failed:", error);
             return false;
         }
     }

@@ -7,16 +7,17 @@
    export const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY || '';
 
    export const TRANSACTION_CONFIG = {
-      maxSlippage: 0.1,
+      maxSlippage: 0.20,
       priorityFee: 100000,
       maxRetries: 3,
       timeout: 30000,
+      minSolBalance: 0.01,
    };
 
    export const DEX_CONFIG = {
       jupiterApiUrl: 'https://quote-api.jup.ag/v6',
-      //minLiquidity: 1000,
-      //maxPriceImpact: 5,
+      minLiquidity: 1000,
+      maxPriceImpact: 5,
       trustedDexes: ['RAYDIUM','ORCA','JUPITER']
    };
    
@@ -32,9 +33,9 @@
 
       tradeCooldown: 60000, // 1 minute
       
-      // maxDailyTradeValue: 1,
+      maxDailyTradeValue: 1,
       
-      // blacklistedTokens: [],
+      blacklistedTokens: [],
       
       enableEmergencyStop: true
   };

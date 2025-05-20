@@ -31,21 +31,41 @@ class DexManager {
         }
     }
     
-    async executeSwap(tokenAddress: string,amount: number) : Promise<boolean> {
+    async executeSwap(tokenAddress: string, amount: number): Promise<string> {
         try {
-            if (!await this.checkLiquidity(tokenAddress)) {
-                throw new Error("Insufficient liquidity");
-            }
-
-            // Check price impact
-            const priceImpact = await this.calculatePriceImpact(tokenAddress, amount);
-            if (priceImpact > DEX_CONFIG.maxPriceImpact) {
-                throw new Error("Price impact too high");
-            }
-
-            // Execute swap
-            // Add your swap execution logic here
-            return "transaction_signature";
+            // Get quote from Jupiter
+            const quoteResponse = await fetch(`${DEX_CONFIG.jupiterApiUrl}/quote`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    inputMint: 'So11111111111111111111111111111111111111112', // SOL
+                    outputMint: tokenAddress,
+                    amount: amount * 1e9, // Convert to lamports
+                    slippageBps: TRANSACTION_CONFIG.slippageTolerance * 100
+                })
+            });
+            
+            const quote = await quoteResponse.json();
+            
+            // Get swap transaction
+            const swapResponse = await fetch(`${DEX_CONFIG.jupiterApiUrl}/swap`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    quoteResponse: quote,
+                    userPublicKey: walletManager.getPublicKey().toString(),
+                    wrapUnwrapSOL: true
+                })
+            });
+            
+            const swapTransaction = await swapResponse.json();
+            
+            // Execute the swap
+            const signature = await walletManager.signAndSendTransaction(
+                swapTransaction.swapTransaction
+            );
+            
+            return signature;
         } catch (error) {
             console.error("❌ Swap execution failed:", error);
             throw error;
