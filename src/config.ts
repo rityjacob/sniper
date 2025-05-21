@@ -44,9 +44,9 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
     maxRetries: 3,
     timeout: 30000,
     minSolBalance: 0.01,
-    maxSolPerTrade: 6,
+    maxSolPerTrade: 2,
     percentageOfTargetTrade: 0.05,
-    maxBuyAmount: 20,
+    maxBuyAmount: 5,
 };
 
 export const DEX_CONFIG: DexConfig = {
@@ -64,9 +64,9 @@ export const MONITORING_CONFIG: MonitoringConfig = {
 };
 
 export const SAFETY_CONFIG: SafetyConfig = {
-    maxTradesPerHour: 2,
-    tradeCooldown: 60000, // 1 minute
-    maxDailyTradeValue: 1,
+    maxTradesPerHour: 5,
+    tradeCooldown: 30000,
+    maxDailyTradeValue: 10,
     blacklistedTokens: [],
     enableEmergencyStop: true
 };
