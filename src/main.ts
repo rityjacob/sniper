@@ -85,10 +85,17 @@ class Sniper {
         try {
             const success = await transactionManager.processTransaction(transaction);
             if (success) {
-                await dexManager.executeSwap(
-                    transaction.tokenAddress,
-                    transaction.amount
-                );
+                if (transaction.type === 'buy') {
+                    await dexManager.executeSwap(
+                        transaction.tokenAddress,
+                        transaction.amount
+                    );
+                } else if (transaction.type === 'sell') {
+                    await dexManager.sellToken(
+                        transaction.tokenAddress,
+                        Number(transaction.amount)
+                    );
+                }
             }
         } catch (error) {
             console.error('Error handling transaction:', error);

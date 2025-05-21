@@ -90,15 +90,51 @@ class WebSocketManager extends EventEmitter {
     }
 
     private isTokenTransaction(data: any): boolean {
-        return data.program === 'spl-token' || 
-               data.program === 'token' ||
-               data.program === 'token-2022';
+        // Only process token program transactions
+        if (!(data.program === 'spl-token' || data.program === 'token' || data.program === 'token-2022')) {
+            return false;
+        }
+
+        // Check if it's a buy or sell transaction
+        // Buy transactions typically involve SOL -> Token
+        // Sell transactions typically involve Token -> SOL
+        const isBuy = data.type === 'buy' || 
+                     (data.instructions && data.instructions.some((ix: any) => 
+                         ix.program === 'spl-token' && 
+                         ix.parsed?.type === 'transferChecked' &&
+                         ix.parsed?.info?.mint === data.tokenAddress
+                     ));
+        
+        const isSell = data.type === 'sell' ||
+                      (data.instructions && data.instructions.some((ix: any) =>
+                          ix.program === 'spl-token' &&
+                          ix.parsed?.type === 'transferChecked' &&
+                          ix.parsed?.info?.destination === 'So11111111111111111111111111111111111111112'
+                      ));
+
+        return isBuy || isSell;
     }
 
-    private extractTokenInfo(data: any): { address: string; amount: number } {
+    private extractTokenInfo(data: any): { address: string; amount: number; type: 'buy' | 'sell'; targetAmount?: number } {
+        const isBuy = data.type === 'buy' || 
+                     (data.instructions && data.instructions.some((ix: any) => 
+                         ix.program === 'spl-token' && 
+                         ix.parsed?.type === 'transferChecked' &&
+                         ix.parsed?.info?.mint === data.tokenAddress
+                     ));
+
+        // For sells, we need to get their total balance to calculate proportion
+        let targetAmount: number | undefined;
+        if (!isBuy) {
+            // Get their total token balance from the transaction data
+            targetAmount = data.totalBalance || data.balance || 0;
+        }
+
         return {
             address: data.tokenAddress,
-            amount: data.amount
+            amount: data.amount,
+            type: isBuy ? 'buy' : 'sell',
+            targetAmount
         };
     }
 }
