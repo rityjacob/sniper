@@ -92,6 +92,8 @@ class CommandHandler {
                     return `Usage: ${this.commands.get('balance')?.usage}`;
                 }
 
+                console.log("balacne hitttttt")
+
                 const [tokenAddress] = args;
                 try {
                     const balance = await dexManager.getTokenBalance(tokenAddress);
@@ -123,14 +125,20 @@ class CommandHandler {
         }
 
         const [command, ...args] = message.slice(1).split(' ');
+        console.log(`Command received: ${command}, Args: ${args.join(', ')}`);
+        
         const cmd = this.commands.get(command.toLowerCase());
+        console.log(`Command found: ${cmd ? 'yes' : 'no'}`);
 
         if (!cmd) {
             return `Unknown command. Type !help for available commands.`;
         }
 
         try {
-            return await cmd.execute(args);
+            console.log(`Executing command: ${command}`);
+            const result = await cmd.execute(args);
+            console.log(`Command result: ${result}`);
+            return result;
         } catch (error: any) {
             logger.logError('system', 'Command execution failed', error.message);
             return `Command failed: ${error.message}`;

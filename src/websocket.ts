@@ -47,7 +47,6 @@ class WebSocketManager extends EventEmitter {
 
                 if (lamports !== undefined) {
                     console.log(`💰 Target wallet balance: ${lamports / LAMPORTS_PER_SOL} SOL`);
-                    // Here you'll add logic to detect transactions
                 }
 
                 // Check if it's a transaction notification

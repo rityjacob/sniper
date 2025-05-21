@@ -8,22 +8,64 @@ let mockTokenBalance = 1000;
 
 // @ts-ignore
 global.fetch = jest.fn().mockImplementation((url: string, options?: any) => {
-    if (url.includes('/balance')) {
+    // Handle balance check - match the exact URL pattern from dex.ts
+    if (url.includes('/balance') && url.includes('token=')) {
         return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ balance: mockTokenBalance })
         });
     }
+
+    // Handle quote request (POST)
     if (url.includes('/quote')) {
+        if (options?.method !== 'POST') {
+            return Promise.resolve({
+                ok: false,
+                status: 405,
+                statusText: 'Method Not Allowed'
+            });
+        }
+        const body = JSON.parse(options.body);
+        // Match the exact structure from dex.ts
+        if (!body.inputMint || !body.outputMint || !body.amount || !body.slippageBps) {
+            return Promise.resolve({
+                ok: false,
+                status: 400,
+                statusText: 'Bad Request'
+            });
+        }
         return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({
                 outAmount: '1000000000',
-                inAmount: '1000000000'
+                inAmount: '1000000000',
+                priceImpactPct: 0.1,
+                marketInfos: [{
+                    label: 'Jupiter',
+                    lpFee: { amount: '0', mint: 'SOL' }
+                }]
             })
         });
     }
+
+    // Handle swap request (POST)
     if (url.includes('/swap')) {
+        if (options?.method !== 'POST') {
+            return Promise.resolve({
+                ok: false,
+                status: 405,
+                statusText: 'Method Not Allowed'
+            });
+        }
+        const body = JSON.parse(options.body);
+        // Match the exact structure from dex.ts
+        if (!body.quoteResponse || !body.userPublicKey || !body.wrapUnwrapSOL) {
+            return Promise.resolve({
+                ok: false,
+                status: 400,
+                statusText: 'Bad Request'
+            });
+        }
         mockTokenBalance = 0; // Update balance after swap
         return Promise.resolve({
             ok: true,
@@ -32,17 +74,100 @@ global.fetch = jest.fn().mockImplementation((url: string, options?: any) => {
             })
         });
     }
+
+    // Handle price check
+    if (url.includes('/price')) {
+        return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ price: 1.0 })
+        });
+    }
+
+    // Handle liquidity check
+    if (url.includes('/liquidity')) {
+        return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ liquidity: 1000 })
+        });
+    }
+
     return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({})
     });
 });
 
+// Set up mocks before any imports
+jest.mock('node-fetch', () => {
+    const originalModule = jest.requireActual('node-fetch');
+    return {
+        __esModule: true,
+        ...originalModule,
+        default: jest.fn().mockImplementation((url: string, options?: any) => {
+            // Handle balance check
+            if (url.includes('/balance')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ balance: 1000 })
+                });
+            }
+
+            // Handle quote request
+            if (url.includes('/quote')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        outAmount: '1000000000',
+                        inAmount: '1000000000',
+                        priceImpactPct: 0.1,
+                        marketInfos: [{
+                            label: 'Jupiter',
+                            lpFee: { amount: '0', mint: 'SOL' }
+                        }]
+                    })
+                });
+            }
+
+            // Handle swap request
+            if (url.includes('/swap')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        swapTransaction: 'mock_transaction'
+                    })
+                });
+            }
+
+            // Handle price check
+            if (url.includes('/price')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ price: 1.0 })
+                });
+            }
+
+            // Handle liquidity check
+            if (url.includes('/liquidity')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ liquidity: 1000 })
+                });
+            }
+
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({})
+            });
+        })
+    };
+});
+
+// Now import the modules
 import { commandHandler } from '../commands';
 import { dexManager } from '../dex';
 import { logger } from '../utils/logger';
 
-// Mock the wallet before importing anything that uses it
+// Mock the wallet
 jest.mock('../wallet', () => ({
     walletManager: {
         getPublicKey: () => ({

@@ -10,9 +10,19 @@ import { transactionManager } from './transaction';
 import { dexManager } from './dex';
 import { walletManager } from './wallet';
 import { Transaction } from '@solana/web3.js';
+import { commandHandler } from './commands';
+import * as readline from 'readline';
 
 class Sniper {
     private isRunning: boolean = false;
+    private rl: readline.Interface;
+
+    constructor() {
+        this.rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+    }
 
     async start() {
         try {
@@ -21,18 +31,55 @@ class Sniper {
             if (!await walletManager.checkMinimumBalance()) {
                 throw new Error('Insufficient balance');
             }
+
+            // Set up command input first
+            this.setupCommandInput();
+            
+            // Then initialize WebSocket
             initializeWebSocket();
 
             this.isRunning = true;
             console.log('Sniper started successfully');
         } catch (error) {
             console.error('Error starting trading bot:', error);
-            this.stop;
+            this.stop();
         }
+    }
+
+    private setupCommandInput() {
+        console.log('\nCommand interface ready. Type a command or !help for options.\n');
+        
+        this.rl.on('line', async (input) => {
+            const trimmedInput = input.trim();
+            if (trimmedInput) {
+                try {
+                    // Add ! prefix if missing
+                    const command = trimmedInput.startsWith('!') ? trimmedInput : `!${trimmedInput}`;
+                    console.log(`Processing command: ${command}`);
+                    
+                    const response = await commandHandler.handleCommand(command);
+                    if (response) {
+                        console.log('\n' + response + '\n');
+                    } else {
+                        console.log('\nNo response from command handler\n');
+                    }
+                } catch (error: any) {
+                    console.error('\n❌ Error:', error.message, '\n');
+                }
+            }
+        });
+
+        // Show initial help message
+        console.log('\nAvailable commands:');
+        console.log('!help - Show this help message');
+        console.log('!balance <token_address> - Check token balance');
+        console.log('!sell <token_address> <amount> - Sell specific amount');
+        console.log('!sellp <token_address> <percentage> - Sell percentage of holdings\n');
     }
 
     stop() {
         this.isRunning = false;
+        this.rl.close();
         console.log('Trading bot stopped');
     }
 

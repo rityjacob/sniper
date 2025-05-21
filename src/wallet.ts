@@ -12,7 +12,7 @@ import {
 } from './config';
 import bs58 from 'bs58';
 
-class WalletManager {
+export class WalletManager {
     private connection: Connection;
     private wallet: Keypair;
 
@@ -70,11 +70,15 @@ class WalletManager {
             );
 
             // Wait for confirmation
-            await this.connection.confirmTransaction({
+            const confirmation = await this.connection.confirmTransaction({
                 signature,
                 blockhash,
                 lastValidBlockHeight
             }, 'confirmed');
+
+            if (confirmation.value.err) {
+                throw new Error('Transaction confirmation failed');
+            }
 
             console.log(`✅ Transaction confirmed: ${signature}`);
             return signature;
@@ -95,7 +99,7 @@ class WalletManager {
                 maxAmount
             );
             
-            return optimalAmount;
+            return Math.max(0, optimalAmount);
         } catch (error) {
             console.error("❌ Failed to calculate optimal trade amount:", error);
             throw error;
@@ -111,7 +115,7 @@ class WalletManager {
             message.recentBlockhash = blockhash;
             
             const fee = await this.connection.getFeeForMessage(message.compileMessage());
-            return Number(fee) / 1e9; // Convert to SOL
+            return Number(fee.value) / 1e9; // Convert to SOL
         } catch (error) {
             console.error("❌ Failed to estimate transaction fee:", error);
             throw error;

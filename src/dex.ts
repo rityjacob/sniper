@@ -1,3 +1,4 @@
+jest.mock('node-fetch', () => jest.fn());
 import fetch, { Response } from 'node-fetch';
 import { 
     DEX_CONFIG,
