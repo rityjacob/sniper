@@ -33,20 +33,13 @@ class Sniper {
         console.log('Command interface ready. Type a command or !help for options.\n');
         this.rl.prompt();
         this.rl.on('line', async (input) => {
-            console.log('\n=== New Input Received ===');
-            console.log(`Raw input: ${input}`);
             const trimmedInput = input.trim();
-            console.log(`Trimmed input: ${trimmedInput}`);
             if (trimmedInput) {
                 try {
                     const command = trimmedInput.startsWith('!') ? trimmedInput : `!${trimmedInput}`;
-                    console.log(`Processing command: ${command}`);
                     const response = await commandHandler.handleCommand(command);
-                    console.log(`Command handler response: ${response}`);
                     if (response) {
-                        console.log('\n=== Command Response ===');
                         console.log(response);
-                        console.log('=====================\n');
                     } else {
                         console.log('\nNo response from command handler\n');
                     }

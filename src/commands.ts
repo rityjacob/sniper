@@ -1,5 +1,6 @@
 import { dexManager } from './dex';
 import { logger } from './utils/logger';
+import { walletManager } from './wallet';
 
 interface Command {
     name: string;
@@ -88,22 +89,27 @@ class CommandHandler {
         // Check balance command
         this.commands.set('balance', {
             name: 'balance',
-            description: 'Check token balance',
-            usage: '!balance <token_address>',
+            description: 'Check SOL or token balance',
+            usage: '!balance [token_address]',
             execute: async (args: string[]) => {
-                if (args.length !== 1) {
-                    return `Usage: ${this.commands.get('balance')?.usage}`;
+                if (args.length === 0) {
+                    try {
+                        const solBalance = await walletManager.getBalance();
+                        return `\n💰  Wallet SOL Balance\n----------------------\n  ${solBalance} SOL\n`;
+                    } catch (error: any) {
+                        return `\n❌ Failed to fetch SOL balance: ${error.message}\n`;
+                    }
                 }
-
-                console.log("balacne hitttttt")
-
-                const [tokenAddress] = args;
-                try {
-                    const balance = await dexManager.getTokenBalance(tokenAddress);
-                    return `Current balance: ${balance} tokens`;
-                } catch (error: any) {
-                    return `Failed to fetch balance: ${error.message}`;
+                if (args.length === 1) {
+                    const [tokenAddress] = args;
+                    try {
+                        const balance = await dexManager.getTokenBalance(tokenAddress);
+                        return `\n💰  Token Balance\n----------------------\n  ${balance} tokens\n`;
+                    } catch (error: any) {
+                        return `\n❌ Failed to fetch token balance: ${error.message}\n`;
+                    }
                 }
+                return `\nUsage: ${this.commands.get('balance')?.usage}\n`;
             }
         });
 
@@ -113,43 +119,32 @@ class CommandHandler {
             description: 'Show available commands',
             usage: '!help',
             execute: async () => {
-                let helpText = 'Available commands:\n';
+                let helpText = '\n📖  Available Commands\n----------------------';
                 this.commands.forEach(cmd => {
-                    helpText += `\n${cmd.usage}\n${cmd.description}`;
+                    helpText += `\n\n${cmd.usage}\n  ${cmd.description}`;
                 });
+                helpText += '\n';
                 return helpText;
             }
         });
     }
 
     async handleCommand(message: string): Promise<string> {
-        console.log('\n=== Command Handler Debug ===');
-        console.log('Received message:', message);
-        console.log('Current registered commands:', Array.from(this.commands.keys()));
-        
         if (!message.startsWith('!')) {
-            console.log('Message does not start with !, returning empty string');
             return '';
         }
 
         const [command, ...args] = message.slice(1).split(' ');
-        console.log(`Parsed command: "${command}", Args: [${args.join(', ')}]`);
-        
         const cmd = this.commands.get(command.toLowerCase());
-        console.log(`Command "${command}" found: ${cmd ? 'yes' : 'no'}`);
 
         if (!cmd) {
-            console.log('Unknown command, returning help message');
             return `Unknown command. Type !help for available commands.`;
         }
 
         try {
-            console.log(`Executing command: ${command}`);
             const result = await cmd.execute(args);
-            console.log(`Command execution result: ${result}`);
             return result;
         } catch (error: any) {
-            console.error('Command execution failed:', error);
             logger.logError('system', 'Command execution failed', error.message);
             return `Command failed: ${error.message}`;
         }
