@@ -1,0 +1,7 @@
+timestamp,signature,tokenAddress,amount,status,error,priceImpact,liquidity
+2025-05-21T04:49:45.763Z,pending,So11111111111111111111111111111111111111112,1,failed,API call failed: Method Not Allowed - ,,
+2025-05-21T04:49:46.130Z,pending,So11111111111111111111111111111111111111112,1,failed,API call failed: Method Not Allowed - ,,
+2025-05-21T04:51:22.883Z,pending,So11111111111111111111111111111111111111112,1,failed,API call failed: Method Not Allowed - ,,
+2025-05-21T04:51:23.190Z,pending,So11111111111111111111111111111111111111112,1,failed,API call failed: Method Not Allowed - ,,
+2025-05-21T04:56:51.942Z,pending,So11111111111111111111111111111111111111112,1,failed,API call failed: Method Not Allowed - ,,
+2025-05-21T04:59:32.181Z,pending,So11111111111111111111111111111111111111112,1,failed,API call failed: Method Not Allowed - ,,

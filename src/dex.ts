@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+import fetch, { Response } from 'node-fetch';
 import { 
     DEX_CONFIG,
     TRANSACTION_CONFIG,
@@ -14,19 +14,50 @@ interface TokenInfo {
 }
 
 class DexManager {
+    private lastApiCall: number = 0;
+    private readonly minApiCallInterval = 100; // 100ms between API calls
+
+    private async rateLimitedFetch(url: string, options?: any): Promise<Response> {
+        const now = Date.now();
+        const timeSinceLastCall = now - this.lastApiCall;
+        
+        if (timeSinceLastCall < this.minApiCallInterval) {
+            await new Promise(resolve => setTimeout(resolve, this.minApiCallInterval - timeSinceLastCall));
+        }
+        
+        this.lastApiCall = Date.now();
+        const response = await fetch(url, options);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            logger.logError('dex', `API call failed: ${response.statusText}`, 
+                `URL: ${url}\nStatus: ${response.status}\nResponse: ${errorText}`
+            );
+            throw new Error(`API call failed: ${response.statusText} - ${errorText}`);
+        }
+        
+        return response;
+    }
+
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
-            const response = await fetch(`${DEX_CONFIG.jupiterApiUrl}/price?token=${tokenAddress}`);
-            if (!response.ok) {
-                throw new Error(`Failed to get price: ${response.statusText}`);
-            }
+            const response = await this.rateLimitedFetch(
+                `${DEX_CONFIG.jupiterApiUrl}/price?token=${tokenAddress}`
+            );
             const data = await response.json();
-            return data.price || 0;
+            const price = data.price || 0;
+            
+            logger.logInfo('dex', 'Token price fetched', 
+                `Token: ${tokenAddress}, Price: ${price} SOL`
+            );
+            
+            return price;
         } catch (error: any) {
             logger.logError('dex', 'Failed to get token price', error.message);
             throw error;
         }
     }
+
     async checkLiquidity(tokenAddress: string): Promise<boolean> {
         try {
             const liquidity = await this.getTokenLiquidity(tokenAddress);
@@ -52,43 +83,51 @@ class DexManager {
             );
 
             // Get quote from Jupiter
-            const quoteResponse = await fetch(`${DEX_CONFIG.jupiterApiUrl}/quote`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    inputMint: 'So11111111111111111111111111111111111111112', // SOL
-                    outputMint: tokenAddress,
-                    amount: amount * 1e9, // Convert to lamports
-                    slippageBps: TRANSACTION_CONFIG.maxSlippage * 100,
-                    onlyDirectRoutes: false,
-                    asLegacyTransaction: true
-                })
-            });
-            
-            if (!quoteResponse.ok) {
-                throw new Error(`Failed to get quote: ${quoteResponse.statusText}`);
-            }
+            const quoteResponse = await this.rateLimitedFetch(
+                `${DEX_CONFIG.jupiterApiUrl}/quote`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        inputMint: 'So11111111111111111111111111111111111111112', // SOL
+                        outputMint: tokenAddress,
+                        amount: amount * 1e9, // Convert to lamports
+                        slippageBps: TRANSACTION_CONFIG.maxSlippage * 100,
+                        onlyDirectRoutes: false,
+                        asLegacyTransaction: true
+                    })
+                }
+            );
             
             const quote = await quoteResponse.json();
             logger.logInfo('dex', 'Quote received', JSON.stringify(quote, null, 2));
             
-            // Get swap transaction
-            const swapResponse = await fetch(`${DEX_CONFIG.jupiterApiUrl}/swap`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    quoteResponse: quote,
-                    userPublicKey: walletManager.getPublicKey().toString(),
-                    wrapUnwrapSOL: true,
-                    computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee
-                })
-            });
-            
-            if (!swapResponse.ok) {
-                throw new Error(`Failed to get swap transaction: ${swapResponse.statusText}`);
+            // Validate quote
+            if (!quote.outAmount || !quote.inAmount) {
+                throw new Error('Invalid quote received from Jupiter');
             }
+
+            // Get swap transaction
+            const swapResponse = await this.rateLimitedFetch(
+                `${DEX_CONFIG.jupiterApiUrl}/swap`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        quoteResponse: quote,
+                        userPublicKey: walletManager.getPublicKey().toString(),
+                        wrapUnwrapSOL: true,
+                        computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee
+                    })
+                }
+            );
             
             const swapTransaction = await swapResponse.json();
+            
+            if (!swapTransaction.swapTransaction) {
+                throw new Error('Invalid swap transaction received from Jupiter');
+            }
+
             logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
             
             // Execute the swap
@@ -103,14 +142,20 @@ class DexManager {
             throw error;
         }
     }
+
     private async getTokenLiquidity(tokenAddress: string): Promise<number> {
         try {
-            const response = await fetch(`${DEX_CONFIG.jupiterApiUrl}/liquidity?token=${tokenAddress}`);
-            if (!response.ok) {
-                throw new Error(`Failed to get liquidity: ${response.statusText}`);
-            }
+            const response = await this.rateLimitedFetch(
+                `${DEX_CONFIG.jupiterApiUrl}/liquidity?token=${tokenAddress}`
+            );
             const data = await response.json();
-            return data.liquidity || 0;
+            const liquidity = data.liquidity || 0;
+            
+            logger.logInfo('dex', 'Token liquidity fetched', 
+                `Token: ${tokenAddress}, Liquidity: ${liquidity} SOL`
+            );
+            
+            return liquidity;
         } catch (error: any) {
             logger.logError('dex', 'Error fetching token liquidity', error.message);
             return 0;
@@ -121,8 +166,177 @@ class DexManager {
         tokenAddress: string,
         amount: number
     ): Promise<number> {
-        // Implement price impact calculation
-        return 0;
+        try {
+            const currentPrice = await this.getTokenPrice(tokenAddress);
+            const liquidity = await this.getTokenLiquidity(tokenAddress);
+            
+            // Simple price impact calculation
+            // This is a basic model - you might want to use a more sophisticated one
+            const priceImpact = (amount / liquidity) * 100;
+            
+            logger.logInfo('dex', 'Price impact calculated', 
+                `Token: ${tokenAddress}, Amount: ${amount} SOL, Impact: ${priceImpact.toFixed(2)}%`
+            );
+            
+            return priceImpact;
+        } catch (error: any) {
+            logger.logError('dex', 'Error calculating price impact', error.message);
+            throw error;
+        }
+    }
+
+    async sellToken(tokenAddress: string, tokenAmount: number): Promise<string> {
+        try {
+            // Check balance before selling
+            const balance = await this.getTokenBalance(tokenAddress);
+            if (balance < tokenAmount) {
+                throw new Error(`Insufficient balance. Have: ${balance}, Trying to sell: ${tokenAmount}`);
+            }
+
+            logger.logInfo('dex', 'Executing sell', 
+                `Token: ${tokenAddress}, Amount: ${tokenAmount} tokens`
+            );
+
+            // Get quote from Jupiter
+            const quoteResponse = await this.rateLimitedFetch(
+                `${DEX_CONFIG.jupiterApiUrl}/quote`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        inputMint: tokenAddress,
+                        outputMint: 'So11111111111111111111111111111111111111112', // SOL
+                        amount: tokenAmount,
+                        slippageBps: TRANSACTION_CONFIG.maxSlippage * 100,
+                        onlyDirectRoutes: false,
+                        asLegacyTransaction: true
+                    })
+                }
+            );
+            
+            const quote = await quoteResponse.json();
+            logger.logInfo('dex', 'Sell quote received', JSON.stringify(quote, null, 2));
+            
+            // Validate quote
+            if (!quote.outAmount || !quote.inAmount) {
+                throw new Error('Invalid quote received from Jupiter');
+            }
+
+            // Get swap transaction
+            const swapResponse = await this.rateLimitedFetch(
+                `${DEX_CONFIG.jupiterApiUrl}/swap`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        quoteResponse: quote,
+                        userPublicKey: walletManager.getPublicKey().toString(),
+                        wrapUnwrapSOL: true,
+                        computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee
+                    })
+                }
+            );
+            
+            const swapTransaction = await swapResponse.json();
+            
+            if (!swapTransaction.swapTransaction) {
+                throw new Error('Invalid swap transaction received from Jupiter');
+            }
+
+            logger.logInfo('dex', 'Sell transaction prepared', 'Executing transaction');
+            
+            // Execute the swap
+            const signature = await walletManager.signAndSendTransaction(
+                swapTransaction.swapTransaction
+            );
+            
+            logger.logTransactionSuccess(signature, tokenAddress, tokenAmount.toString());
+            return signature;
+        } catch (error: any) {
+            logger.logTransactionFailure('pending', tokenAddress, tokenAmount.toString(), error.message);
+            throw error;
+        }
+    }
+
+    async getTokenBalance(tokenAddress: string): Promise<number> {
+        try {
+            const response = await this.rateLimitedFetch(
+                `${DEX_CONFIG.jupiterApiUrl}/balance?token=${tokenAddress}&wallet=${walletManager.getPublicKey().toString()}`
+            );
+            const data = await response.json();
+            const balance = data.balance || 0;
+            
+            logger.logInfo('dex', 'Token balance fetched', 
+                `Token: ${tokenAddress}, Balance: ${balance}`
+            );
+            
+            return balance;
+        } catch (error: any) {
+            logger.logError('dex', 'Error fetching token balance', error.message);
+            return 0;
+        }
+    }
+
+    async calculateExpectedReturn(tokenAddress: string, tokenAmount: number): Promise<{
+        expectedSol: number;
+        priceImpact: number;
+        minimumReceived: number;
+    }> {
+        try {
+            const quoteResponse = await this.rateLimitedFetch(
+                `${DEX_CONFIG.jupiterApiUrl}/quote`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        inputMint: tokenAddress,
+                        outputMint: 'So11111111111111111111111111111111111111112',
+                        amount: tokenAmount,
+                        slippageBps: TRANSACTION_CONFIG.maxSlippage * 100,
+                        onlyDirectRoutes: false,
+                        asLegacyTransaction: true
+                    })
+                }
+            );
+            
+            const quote = await quoteResponse.json();
+            const priceImpact = await this.calculatePriceImpact(tokenAddress, tokenAmount);
+            const minimumReceived = quote.outAmount * (1 - TRANSACTION_CONFIG.maxSlippage);
+            
+            return {
+                expectedSol: quote.outAmount / 1e9, // Convert lamports to SOL
+                priceImpact,
+                minimumReceived: minimumReceived / 1e9
+            };
+        } catch (error: any) {
+            logger.logError('dex', 'Error calculating expected return', error.message);
+            throw error;
+        }
+    }
+
+    async sellPercentageOfHoldings(tokenAddress: string, percentage: number): Promise<string> {
+        try {
+            if (percentage <= 0 || percentage > 100) {
+                throw new Error('Percentage must be between 0 and 100');
+            }
+
+            const balance = await this.getTokenBalance(tokenAddress);
+            const amountToSell = Math.floor(balance * (percentage / 100));
+
+            if (amountToSell <= 0) {
+                throw new Error('No tokens available to sell');
+            }
+
+            const expectedReturn = await this.calculateExpectedReturn(tokenAddress, amountToSell);
+            logger.logInfo('dex', 'Selling percentage of holdings', 
+                `Token: ${tokenAddress}, Percentage: ${percentage}%, Amount: ${amountToSell}, Expected SOL: ${expectedReturn.expectedSol}`
+            );
+
+            return await this.sellToken(tokenAddress, amountToSell);
+        } catch (error: any) {
+            logger.logError('dex', 'Error selling percentage of holdings', error.message);
+            throw error;
+        }
     }
 }
 

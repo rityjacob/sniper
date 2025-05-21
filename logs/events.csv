@@ -1,0 +1,77 @@
+timestamp,type,category,message,details
+2025-05-21T04:49:45.647Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:49:45.763Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:49:45.868Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:49:45.870Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:49:45.963Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:49:45.965Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:49:45.965Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T04:49:46.028Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:49:46.030Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:49:46.038Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:49:46.129Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:51:22.735Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:51:22.882Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:51:22.898Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:51:22.900Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:51:23.012Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:51:23.014Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:51:23.015Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T04:51:23.086Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:51:23.088Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:51:23.093Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:51:23.189Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:56:51.672Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:56:51.689Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:56:51.750Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:56:51.751Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:56:51.752Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T04:56:51.835Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:56:51.836Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:56:51.839Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:56:51.940Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:59:31.920Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:59:31.937Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:59:31.981Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:59:31.982Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:59:31.983Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T04:59:32.085Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:59:32.086Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:59:32.091Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:59:32.179Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
