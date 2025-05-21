@@ -3,7 +3,7 @@ import {
     WS_URL, 
     TARGET_WALLET_ADDRESS,
     MONITORING_CONFIG 
-} from './config.js';
+} from './config';
 import { EventEmitter } from 'events';
 
 const LAMPORTS_PER_SOL = 1_000_000_000;

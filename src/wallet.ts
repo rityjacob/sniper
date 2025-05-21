@@ -9,7 +9,7 @@ import {
     TRANSACTION_CONFIG,
     NETWORK,
     RPC_URL
-} from './config.js';
+} from './config';
 import bs58 from 'bs58';
 
 class WalletManager {

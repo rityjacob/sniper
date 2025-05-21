@@ -4,11 +4,11 @@ import {
     TRANSACTION_CONFIG,
     SAFETY_CONFIG,
     MONITORING_CONFIG 
-} from './config.js';
-import { initializeWebSocket } from './websocket.js';
-import { transactionManager } from './transaction.js';
-import { dexManager } from './dex.js';
-import { walletManager } from './wallet.js';
+} from './config';
+import { initializeWebSocket } from './websocket';
+import { transactionManager } from './transaction';
+import { dexManager } from './dex';
+import { walletManager } from './wallet';
 import { Transaction } from '@solana/web3.js';
 
 class Sniper {

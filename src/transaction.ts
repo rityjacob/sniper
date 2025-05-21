@@ -3,8 +3,9 @@ import {
     SAFETY_CONFIG,
     MONITORING_CONFIG,
     DEX_CONFIG
-} from './config.js';
-import { dexManager } from './dex.js';
+} from './config';
+import { dexManager } from './dex';
+import { logger } from './utils/logger';
 
 interface Transaction {
     signature: string;
@@ -22,12 +23,12 @@ class TransactionManager {
 
     async processTransaction(tx: Transaction): Promise<boolean> {
         if (!this.checkSafetyLimits()) {
-            console.log("Safety limits exceeded. Skipping transaction.");
+            logger.logWarning('safety', 'Safety limits exceeded', 'Skipping transaction');
             return false;
         }
 
         if (Date.now() - this.lastTradeTime < SAFETY_CONFIG.tradeCooldown) {
-            console.log("Trade cooldown active. Skipping transaction.");
+            logger.logWarning('safety', 'Trade cooldown active', 'Skipping transaction');
             return false;
         }
         
@@ -42,9 +43,9 @@ class TransactionManager {
             TRANSACTION_CONFIG.maxSolPerTrade
         );
 
-        console.log(`🎯 Target amount: ${targetAmount} SOL`);
-        console.log(`📊 Percentage amount: ${percentageAmount} SOL`);
-        console.log(`💰 Final buy amount: ${finalAmount} SOL`);
+        logger.logInfo('system', 'Calculating trade amounts', 
+            `Target: ${targetAmount} SOL, Percentage: ${percentageAmount} SOL, Final: ${finalAmount} SOL`
+        );
 
         // Store the calculated amount for the swap
         tx.amount = finalAmount.toString();
@@ -52,14 +53,14 @@ class TransactionManager {
         try {
             // Check if token is blacklisted
             if (SAFETY_CONFIG.blacklistedTokens.includes(tx.tokenAddress)) {
-                console.log("🚫 Token is blacklisted");
+                logger.logWarning('safety', 'Token is blacklisted', tx.tokenAddress);
                 return false;
             }
     
             // Check token liquidity
             const hasLiquidity = await dexManager.checkLiquidity(tx.tokenAddress);
             if (!hasLiquidity) {
-                console.log("⚠️ Insufficient liquidity");
+                logger.logWarning('dex', 'Insufficient liquidity', tx.tokenAddress);
                 return false;
             }
     
@@ -69,13 +70,18 @@ class TransactionManager {
                 Number(tx.amount) 
             );
             if (priceImpact > DEX_CONFIG.maxPriceImpact) {
-                console.log("⚠️ Price impact too high");
+                logger.logWarning('dex', 'Price impact too high', 
+                    `Impact: ${priceImpact}%, Max: ${DEX_CONFIG.maxPriceImpact}%`
+                );
                 return false;
             }
     
+            logger.logInfo('system', 'Transaction validation successful', 
+                `Token: ${tx.tokenAddress}, Amount: ${tx.amount} SOL`
+            );
             return true;
-        } catch (error) {
-            console.error("❌ Transaction validation failed:", error);
+        } catch (error: any) {
+            logger.logError('system', 'Transaction validation failed', error.message);
             return false;
         }
     }
@@ -83,27 +89,39 @@ class TransactionManager {
     private checkSafetyLimits(): boolean {
         const now = Date.now();
         
-        // Reset hourly counter if needed
-        if (now - this.lastTradeReset >= 3600000) {
+        // Reset counters if needed
+        if (now - this.lastTradeReset >= 3600000) { // 1 hour
             this.tradesThisHour = 0;
             this.lastTradeReset = now;
+        }
+        
+        if (now - this.lastTradeReset >= 86400000) { // 24 hours
+            this.tradesThisDay = 0;
         }
 
         // Check hourly limit
         if (this.tradesThisHour >= SAFETY_CONFIG.maxTradesPerHour) {
+            logger.logWarning('safety', 'Hourly trade limit reached', 
+                `Trades this hour: ${this.tradesThisHour}, Max: ${SAFETY_CONFIG.maxTradesPerHour}`
+            );
             return false;
         }
 
         // Check daily limit
         if (this.tradesThisDay >= SAFETY_CONFIG.maxDailyTradeValue) {
+            logger.logWarning('safety', 'Daily trade limit reached', 
+                `Trades today: ${this.tradesThisDay}, Max: ${SAFETY_CONFIG.maxDailyTradeValue}`
+            );
             return false;
         }
 
         return true;
     }
-    private updateTradeCounters(): void {
+
+    private updateTradeCounters() {
         this.tradesThisHour++;
         this.tradesThisDay++;
+        this.lastTradeTime = Date.now();
     }
 }
 

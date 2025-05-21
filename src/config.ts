@@ -44,8 +44,8 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
     maxRetries: 3,
     timeout: 30000,
     minSolBalance: 0.01,
-    maxSolPerTrade: 5,
-    percentageOfTargetTrade: 0.5,
+    maxSolPerTrade: 6,
+    percentageOfTargetTrade: 0.05,
     maxBuyAmount: 20,
 };
 

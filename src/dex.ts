@@ -2,8 +2,9 @@ import {
     DEX_CONFIG,
     TRANSACTION_CONFIG,
     SAFETY_CONFIG 
-} from './config.js';
-import { walletManager } from './wallet.js';
+} from './config';
+import { walletManager } from './wallet';
+import { logger } from './utils/logger';
 
 interface TokenInfo {
     address: string;
@@ -15,26 +16,39 @@ class DexManager {
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
             const response = await fetch(`${DEX_CONFIG.jupiterApiUrl}/price?token=${tokenAddress}`);
+            if (!response.ok) {
+                throw new Error(`Failed to get price: ${response.statusText}`);
+            }
             const data = await response.json();
-            return data.price;
-        } catch (error) {
-            console.error("Error fetching token price:", error);
+            return data.price || 0;
+        } catch (error: any) {
+            logger.logError('dex', 'Failed to get token price', error.message);
             throw error;
         }
     }
     async checkLiquidity(tokenAddress: string): Promise<boolean> {
-        try{
+        try {
             const liquidity = await this.getTokenLiquidity(tokenAddress);
-            return liquidity > DEX_CONFIG.minLiquidity;
-        } catch (error) {
-            console.error("Error checking liquidity:", error);
+            const hasLiquidity = liquidity > DEX_CONFIG.minLiquidity;
+            
+            if (!hasLiquidity) {
+                logger.logWarning('dex', 'Insufficient liquidity', 
+                    `Token: ${tokenAddress}, Liquidity: ${liquidity}, Min Required: ${DEX_CONFIG.minLiquidity}`
+                );
+            }
+            
+            return hasLiquidity;
+        } catch (error: any) {
+            logger.logError('dex', 'Error checking liquidity', error.message);
             return false;
         }
     }
     
     async executeSwap(tokenAddress: string, amount: number): Promise<string> {
         try {
-            console.log(`Executing swap for ${amount} SOL of token ${tokenAddress}`);
+            logger.logInfo('dex', 'Executing swap', 
+                `Token: ${tokenAddress}, Amount: ${amount} SOL`
+            );
 
             // Get quote from Jupiter
             const quoteResponse = await fetch(`${DEX_CONFIG.jupiterApiUrl}/quote`, {
@@ -55,7 +69,7 @@ class DexManager {
             }
             
             const quote = await quoteResponse.json();
-            console.log(`📊 Quote received: ${JSON.stringify(quote, null, 2)}`);
+            logger.logInfo('dex', 'Quote received', JSON.stringify(quote, null, 2));
             
             // Get swap transaction
             const swapResponse = await fetch(`${DEX_CONFIG.jupiterApiUrl}/swap`, {
@@ -74,17 +88,17 @@ class DexManager {
             }
             
             const swapTransaction = await swapResponse.json();
-            console.log(`📝 Swap transaction prepared`);
+            logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
             
             // Execute the swap
             const signature = await walletManager.signAndSendTransaction(
                 swapTransaction.swapTransaction
             );
             
-            console.log(`✅ Swap executed successfully: ${signature}`);
+            logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
             return signature;
-        } catch (error) {
-            console.error("❌ Swap execution failed:", error);
+        } catch (error: any) {
+            logger.logTransactionFailure('pending', tokenAddress, amount.toString(), error.message);
             throw error;
         }
     }
@@ -96,8 +110,8 @@ class DexManager {
             }
             const data = await response.json();
             return data.liquidity || 0;
-        } catch (error) {
-            console.error("Error fetching token liquidity:", error);
+        } catch (error: any) {
+            logger.logError('dex', 'Error fetching token liquidity', error.message);
             return 0;
         }
     }
