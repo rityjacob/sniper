@@ -18,48 +18,35 @@ class Sniper {
     private rl: readline.Interface;
 
     constructor() {
+        console.log('Setting up readline interface...');
         this.rl = readline.createInterface({
             input: process.stdin,
-            output: process.stdout
+            output: process.stdout,
+            terminal: true,
+            prompt: '\n> '
         });
+        console.log('Readline interface setup complete');
     }
 
-    async start() {
-        try {
-            console.log('Launching Sniper bot...');
-
-            if (!await walletManager.checkMinimumBalance()) {
-                throw new Error('Insufficient balance');
-            }
-
-            // Set up command input first
-            this.setupCommandInput();
-            
-            // Then initialize WebSocket
-            initializeWebSocket();
-
-            this.isRunning = true;
-            console.log('Sniper started successfully');
-        } catch (error) {
-            console.error('Error starting trading bot:', error);
-            this.stop();
-        }
-    }
-
-    private setupCommandInput() {
-        console.log('\nCommand interface ready. Type a command or !help for options.\n');
-        
+    public setupCommandInput() {
+        console.log('\n=== Command Interface Setup ===');
+        console.log('Command interface ready. Type a command or !help for options.\n');
+        this.rl.prompt();
         this.rl.on('line', async (input) => {
+            console.log('\n=== New Input Received ===');
+            console.log(`Raw input: ${input}`);
             const trimmedInput = input.trim();
+            console.log(`Trimmed input: ${trimmedInput}`);
             if (trimmedInput) {
                 try {
-                    // Add ! prefix if missing
                     const command = trimmedInput.startsWith('!') ? trimmedInput : `!${trimmedInput}`;
                     console.log(`Processing command: ${command}`);
-                    
                     const response = await commandHandler.handleCommand(command);
+                    console.log(`Command handler response: ${response}`);
                     if (response) {
-                        console.log('\n' + response + '\n');
+                        console.log('\n=== Command Response ===');
+                        console.log(response);
+                        console.log('=====================\n');
                     } else {
                         console.log('\nNo response from command handler\n');
                     }
@@ -67,14 +54,30 @@ class Sniper {
                     console.error('\n❌ Error:', error.message, '\n');
                 }
             }
+            this.rl.prompt();
         });
-
-        // Show initial help message
-        console.log('\nAvailable commands:');
+        console.log('\n=== Available Commands ===');
         console.log('!help - Show this help message');
         console.log('!balance <token_address> - Check token balance');
         console.log('!sell <token_address> <amount> - Sell specific amount');
         console.log('!sellp <token_address> <percentage> - Sell percentage of holdings\n');
+        this.rl.prompt();
+    }
+
+    public async asyncStartup() {
+        try {
+            console.log('Launching Sniper bot...');
+            // Optionally, you can uncomment the wallet check if you want to enforce it
+            // if (!await walletManager.checkMinimumBalance()) {
+            //     throw new Error('Insufficient balance');
+            // }
+            initializeWebSocket();
+            this.isRunning = true;
+            console.log('Sniper started successfully');
+        } catch (error) {
+            console.error('Error starting trading bot:', error);
+            this.stop();
+        }
     }
 
     stop() {
@@ -85,10 +88,8 @@ class Sniper {
 
     async handleTransaction(transaction: any) {
         if (!this.isRunning) return;
-
         try {
             const success = await transactionManager.processTransaction(transaction);
-
             if (success) {
                 await dexManager.executeSwap(
                     transaction.tokenAddress,
@@ -103,25 +104,16 @@ class Sniper {
     private async emergencyStop() {
         console.log("🛑 Emergency stop triggered!");
         this.stop();
-        
-        // Cancel any pending transactions
         await this.cancelPendingTransactions();
-        
-        // Log final state
         console.log("Final wallet balance:", await walletManager.getBalance());
     }
 
     private async cancelPendingTransactions() {
         try {
-            // Get recent blockhash
             const { blockhash } = await walletManager.getLatestBlockhash();
-            
-            // Create cancel transaction
             const cancelTx = new Transaction().add(
                 // Add cancel instruction here
             );
-            
-            // Send cancel transaction
             await walletManager.signAndSendTransaction(cancelTx);
         } catch (error) {
             console.error("❌ Failed to cancel pending transactions:", error);
@@ -130,21 +122,17 @@ class Sniper {
 
     private async handleError(error: Error) {
         console.error("❌ Error occurred:", error);
-        
-        // Check if error is critical
         if (this.isCriticalError(error)) {
             await this.emergencyStop();
         }
     }
 
     private isCriticalError(error: Error): boolean {
-        // Define what constitutes a critical error
         const criticalErrors = [
             "insufficient funds",
             "invalid transaction",
             "connection lost"
         ];
-        
         return criticalErrors.some(msg => 
             error.message.toLowerCase().includes(msg)
         );
@@ -152,5 +140,5 @@ class Sniper {
 }
 
 const bot = new Sniper();
-
-bot.start().catch(console.error);
+bot.setupCommandInput();
+bot.asyncStartup();

@@ -12,10 +12,13 @@ class CommandHandler {
     private commands: Map<string, Command> = new Map();
 
     constructor() {
+        console.log('Initializing CommandHandler...');
         this.registerCommands();
+        console.log('CommandHandler initialized with commands:', Array.from(this.commands.keys()));
     }
 
     private registerCommands() {
+        console.log('Registering commands...');
         // Sell specific amount command
         this.commands.set('sell', {
             name: 'sell',
@@ -120,26 +123,33 @@ class CommandHandler {
     }
 
     async handleCommand(message: string): Promise<string> {
+        console.log('\n=== Command Handler Debug ===');
+        console.log('Received message:', message);
+        console.log('Current registered commands:', Array.from(this.commands.keys()));
+        
         if (!message.startsWith('!')) {
+            console.log('Message does not start with !, returning empty string');
             return '';
         }
 
         const [command, ...args] = message.slice(1).split(' ');
-        console.log(`Command received: ${command}, Args: ${args.join(', ')}`);
+        console.log(`Parsed command: "${command}", Args: [${args.join(', ')}]`);
         
         const cmd = this.commands.get(command.toLowerCase());
-        console.log(`Command found: ${cmd ? 'yes' : 'no'}`);
+        console.log(`Command "${command}" found: ${cmd ? 'yes' : 'no'}`);
 
         if (!cmd) {
+            console.log('Unknown command, returning help message');
             return `Unknown command. Type !help for available commands.`;
         }
 
         try {
             console.log(`Executing command: ${command}`);
             const result = await cmd.execute(args);
-            console.log(`Command result: ${result}`);
+            console.log(`Command execution result: ${result}`);
             return result;
         } catch (error: any) {
+            console.error('Command execution failed:', error);
             logger.logError('system', 'Command execution failed', error.message);
             return `Command failed: ${error.message}`;
         }
