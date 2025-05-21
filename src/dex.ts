@@ -1,3 +1,4 @@
+import fetch from 'node-fetch';
 import { 
     DEX_CONFIG,
     TRANSACTION_CONFIG,
