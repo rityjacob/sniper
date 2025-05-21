@@ -53,7 +53,8 @@ class Sniper {
         console.log('!help - Show this help message');
         console.log('!balance <token_address> - Check token balance');
         console.log('!sell <token_address> <amount> - Sell specific amount');
-        console.log('!sellp <token_address> <percentage> - Sell percentage of holdings\n');
+        console.log('!sellp <token_address> <percentage> - Sell percentage of holdings');
+        console.log('!buy <token_address> <sol_amount> - Buy a token with a specified amount of SOL');
         this.rl.prompt();
     }
 

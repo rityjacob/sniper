@@ -113,6 +113,31 @@ class CommandHandler {
             }
         });
 
+        // Buy command
+        this.commands.set('buy', {
+            name: 'buy',
+            description: 'Buy a token with a specified amount of SOL',
+            usage: '!buy <token_address> <sol_amount>',
+            execute: async (args: string[]) => {
+                if (args.length !== 2) {
+                    return `Usage: ${this.commands.get('buy')?.usage}`;
+                }
+                const [tokenAddress, solAmountStr] = args;
+                const solAmount = parseFloat(solAmountStr);
+
+                if (isNaN(solAmount) || solAmount <= 0) {
+                    return 'Invalid SOL amount. Please provide a positive number.';
+                }
+
+                try {
+                    const signature = await dexManager.executeSwap(tokenAddress, solAmount);
+                    return `\n✅ Buy order placed!\nToken: ${tokenAddress}\nAmount: ${solAmount} SOL\nTransaction Signature: ${signature}\n`;
+                } catch (error: any) {
+                    return `\n❌ Buy failed: ${error.message}\n`;
+                }
+            }
+        });
+
         // Help command
         this.commands.set('help', {
             name: 'help',
