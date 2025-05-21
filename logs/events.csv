@@ -1,0 +1,336 @@
+timestamp,type,category,message,details
+2025-05-21T04:49:45.647Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:49:45.763Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:49:45.868Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:49:45.870Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:49:45.963Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:49:45.965Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:49:45.965Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T04:49:46.028Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:49:46.030Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:49:46.038Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:49:46.129Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:51:22.735Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:51:22.882Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:51:22.898Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:51:22.900Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:51:23.012Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:51:23.014Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:51:23.015Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T04:51:23.086Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:51:23.088Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:51:23.093Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:51:23.189Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:56:51.672Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:56:51.689Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:56:51.750Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:56:51.751Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:56:51.752Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T04:56:51.835Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:56:51.836Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:56:51.839Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:56:51.940Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T04:59:31.920Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:59:31.937Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:59:31.981Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:59:31.982Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:59:31.983Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T04:59:32.085Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T04:59:32.086Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T04:59:32.091Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T04:59:32.179Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T15:46:29.515Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T15:46:29.533Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T15:46:29.577Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T15:46:29.578Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T15:46:29.579Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T15:46:29.683Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T15:46:29.684Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T15:46:29.688Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T15:46:29.784Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T15:48:04.917Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T15:48:04.936Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T15:48:04.983Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T15:48:04.984Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T15:48:04.984Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T15:48:05.113Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T15:48:05.114Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T15:48:05.118Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T15:48:05.181Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T15:48:47.734Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T15:48:47.752Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T15:48:47.802Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T15:48:47.804Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T15:48:47.804Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T15:48:47.907Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/balance?token=So11111111111111111111111111111111111111112&wallet=So11111111111111111111111111111111111111112
+Status: 404
+Response: "
+2025-05-21T15:48:47.908Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-21T15:48:47.912Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T15:48:48.009Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-21T15:49:39.567Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:49:39.668Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:49:39.869Z,info,dex,Token price fetched,"Token: So11111111111111111111111111111111111111112, Price: 0 SOL"
+2025-05-21T15:49:39.969Z,info,dex,Token liquidity fetched,"Token: So11111111111111111111111111111111111111112, Liquidity: 0 SOL"
+2025-05-21T15:49:39.973Z,info,dex,Price impact calculated,"Token: So11111111111111111111111111111111111111112, Amount: 500 SOL, Impact: Infinity%"
+2025-05-21T15:49:39.977Z,info,dex,Selling percentage of holdings,"Token: So11111111111111111111111111111111111111112, Percentage: 50%, Amount: 500, Expected SOL: 1"
+2025-05-21T15:49:40.070Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:49:40.074Z,info,dex,Executing sell,"Token: So11111111111111111111111111111111111111112, Amount: 500 tokens"
+2025-05-21T15:49:40.171Z,info,dex,Sell quote received,"{
+  ""outAmount"": ""1000000000"",
+  ""inAmount"": ""1000000000"",
+  ""priceImpactPct"": 0.1,
+  ""marketInfos"": [
+    {
+      ""label"": ""Jupiter"",
+      ""lpFee"": {
+        ""amount"": ""0"",
+        ""mint"": ""SOL""
+      }
+    }
+  ]
+}"
+2025-05-21T15:49:40.281Z,error,dex,Error selling percentage of holdings,Invalid swap transaction received from Jupiter
+2025-05-21T15:49:40.373Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:49:40.574Z,info,dex,Token price fetched,"Token: So11111111111111111111111111111111111111112, Price: 0 SOL"
+2025-05-21T15:49:40.675Z,info,dex,Token liquidity fetched,"Token: So11111111111111111111111111111111111111112, Liquidity: 0 SOL"
+2025-05-21T15:49:40.678Z,info,dex,Price impact calculated,"Token: So11111111111111111111111111111111111111112, Amount: 1000 SOL, Impact: Infinity%"
+2025-05-21T15:49:40.777Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:49:40.779Z,info,dex,Executing sell,"Token: So11111111111111111111111111111111111111112, Amount: 1000 tokens"
+2025-05-21T15:49:40.877Z,info,dex,Sell quote received,"{
+  ""outAmount"": ""1000000000"",
+  ""inAmount"": ""1000000000"",
+  ""priceImpactPct"": 0.1,
+  ""marketInfos"": [
+    {
+      ""label"": ""Jupiter"",
+      ""lpFee"": {
+        ""amount"": ""0"",
+        ""mint"": ""SOL""
+      }
+    }
+  ]
+}"
+2025-05-21T15:49:40.989Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T15:49:41.079Z,info,dex,Quote received,"{
+  ""outAmount"": ""1000000000"",
+  ""inAmount"": ""1000000000"",
+  ""priceImpactPct"": 0.1,
+  ""marketInfos"": [
+    {
+      ""label"": ""Jupiter"",
+      ""lpFee"": {
+        ""amount"": ""0"",
+        ""mint"": ""SOL""
+      }
+    }
+  ]
+}"
+2025-05-21T15:50:25.640Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:50:25.742Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:50:25.944Z,info,dex,Token price fetched,"Token: So11111111111111111111111111111111111111112, Price: 0 SOL"
+2025-05-21T15:50:26.046Z,info,dex,Token liquidity fetched,"Token: So11111111111111111111111111111111111111112, Liquidity: 0 SOL"
+2025-05-21T15:50:26.054Z,info,dex,Price impact calculated,"Token: So11111111111111111111111111111111111111112, Amount: 500 SOL, Impact: Infinity%"
+2025-05-21T15:50:26.057Z,info,dex,Selling percentage of holdings,"Token: So11111111111111111111111111111111111111112, Percentage: 50%, Amount: 500, Expected SOL: 1"
+2025-05-21T15:50:26.148Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:50:26.151Z,info,dex,Executing sell,"Token: So11111111111111111111111111111111111111112, Amount: 500 tokens"
+2025-05-21T15:50:26.250Z,info,dex,Sell quote received,"{
+  ""outAmount"": ""1000000000"",
+  ""inAmount"": ""1000000000"",
+  ""priceImpactPct"": 0.1,
+  ""marketInfos"": [
+    {
+      ""label"": ""Jupiter"",
+      ""lpFee"": {
+        ""amount"": ""0"",
+        ""mint"": ""SOL""
+      }
+    }
+  ]
+}"
+2025-05-21T15:50:26.362Z,error,dex,Error selling percentage of holdings,Invalid swap transaction received from Jupiter
+2025-05-21T15:50:26.453Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:50:26.655Z,info,dex,Token price fetched,"Token: So11111111111111111111111111111111111111112, Price: 0 SOL"
+2025-05-21T15:50:26.754Z,info,dex,Token liquidity fetched,"Token: So11111111111111111111111111111111111111112, Liquidity: 0 SOL"
+2025-05-21T15:50:26.758Z,info,dex,Price impact calculated,"Token: So11111111111111111111111111111111111111112, Amount: 1000 SOL, Impact: Infinity%"
+2025-05-21T15:50:26.856Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:50:26.859Z,info,dex,Executing sell,"Token: So11111111111111111111111111111111111111112, Amount: 1000 tokens"
+2025-05-21T15:50:26.958Z,info,dex,Sell quote received,"{
+  ""outAmount"": ""1000000000"",
+  ""inAmount"": ""1000000000"",
+  ""priceImpactPct"": 0.1,
+  ""marketInfos"": [
+    {
+      ""label"": ""Jupiter"",
+      ""lpFee"": {
+        ""amount"": ""0"",
+        ""mint"": ""SOL""
+      }
+    }
+  ]
+}"
+2025-05-21T15:50:27.070Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T15:50:27.160Z,info,dex,Quote received,"{
+  ""outAmount"": ""1000000000"",
+  ""inAmount"": ""1000000000"",
+  ""priceImpactPct"": 0.1,
+  ""marketInfos"": [
+    {
+      ""label"": ""Jupiter"",
+      ""lpFee"": {
+        ""amount"": ""0"",
+        ""mint"": ""SOL""
+      }
+    }
+  ]
+}"
+2025-05-21T15:50:59.662Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:50:59.762Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:50:59.965Z,info,dex,Token price fetched,"Token: So11111111111111111111111111111111111111112, Price: 0 SOL"
+2025-05-21T15:51:00.066Z,info,dex,Token liquidity fetched,"Token: So11111111111111111111111111111111111111112, Liquidity: 0 SOL"
+2025-05-21T15:51:00.070Z,info,dex,Price impact calculated,"Token: So11111111111111111111111111111111111111112, Amount: 500 SOL, Impact: Infinity%"
+2025-05-21T15:51:00.073Z,info,dex,Selling percentage of holdings,"Token: So11111111111111111111111111111111111111112, Percentage: 50%, Amount: 500, Expected SOL: 1"
+2025-05-21T15:51:00.167Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:51:00.168Z,info,dex,Executing sell,"Token: So11111111111111111111111111111111111111112, Amount: 500 tokens"
+2025-05-21T15:51:00.268Z,info,dex,Sell quote received,"{
+  ""outAmount"": ""1000000000"",
+  ""inAmount"": ""1000000000"",
+  ""priceImpactPct"": 0.1,
+  ""marketInfos"": [
+    {
+      ""label"": ""Jupiter"",
+      ""lpFee"": {
+        ""amount"": ""0"",
+        ""mint"": ""SOL""
+      }
+    }
+  ]
+}"
+2025-05-21T15:51:00.371Z,error,dex,Error selling percentage of holdings,Invalid swap transaction received from Jupiter
+2025-05-21T15:51:00.470Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:51:00.672Z,info,dex,Token price fetched,"Token: So11111111111111111111111111111111111111112, Price: 0 SOL"
+2025-05-21T15:51:00.773Z,info,dex,Token liquidity fetched,"Token: So11111111111111111111111111111111111111112, Liquidity: 0 SOL"
+2025-05-21T15:51:00.777Z,info,dex,Price impact calculated,"Token: So11111111111111111111111111111111111111112, Amount: 1000 SOL, Impact: Infinity%"
+2025-05-21T15:51:00.875Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T15:51:00.878Z,info,dex,Executing sell,"Token: So11111111111111111111111111111111111111112, Amount: 1000 tokens"
+2025-05-21T15:51:00.976Z,info,dex,Sell quote received,"{
+  ""outAmount"": ""1000000000"",
+  ""inAmount"": ""1000000000"",
+  ""priceImpactPct"": 0.1,
+  ""marketInfos"": [
+    {
+      ""label"": ""Jupiter"",
+      ""lpFee"": {
+        ""amount"": ""0"",
+        ""mint"": ""SOL""
+      }
+    }
+  ]
+}"
+2025-05-21T15:51:01.088Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T15:51:01.178Z,info,dex,Quote received,"{
+  ""outAmount"": ""1000000000"",
+  ""inAmount"": ""1000000000"",
+  ""priceImpactPct"": 0.1,
+  ""marketInfos"": [
+    {
+      ""label"": ""Jupiter"",
+      ""lpFee"": {
+        ""amount"": ""0"",
+        ""mint"": ""SOL""
+      }
+    }
+  ]
+}"
+2025-05-21T16:49:55.890Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:49:55.990Z,error,dex,Error fetching token balance,API Error
+2025-05-21T16:49:56.091Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 0"
+2025-05-21T16:49:56.192Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:49:56.293Z,error,dex,Error fetching token balance,Cannot read properties of undefined (reading 'ok')
+2025-05-21T16:53:10.681Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:53:10.782Z,error,dex,Error fetching token balance,API Error
+2025-05-21T16:53:10.884Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 0"
+2025-05-21T16:53:10.985Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:53:11.086Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:54:14.430Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:54:14.546Z,error,dex,Error fetching token balance,API Error
+2025-05-21T16:54:14.639Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 0"
+2025-05-21T16:54:14.740Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:54:14.841Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:59:35.132Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:59:35.233Z,error,dex,Error fetching token balance,API Error
+2025-05-21T16:59:35.334Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 0"
+2025-05-21T16:59:35.435Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:59:35.537Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 1000"
+2025-05-21T16:59:35.637Z,info,dex,Token balance fetched,"Token: So11111111111111111111111111111111111111112, Balance: 50"
+2025-05-21T18:16:03.748Z,error,dex,Error fetching token balance,Cannot read properties of undefined (reading 'ok')
+2025-05-21T18:16:03.848Z,error,dex,Error fetching token balance,Cannot read properties of undefined (reading 'ok')
+2025-05-21T18:16:03.849Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-21T18:16:03.949Z,error,dex,Error fetching token balance,Cannot read properties of undefined (reading 'ok')
+2025-05-21T18:16:03.959Z,info,dex,Executing swap,"Token: So11111111111111111111111111111111111111112, Amount: 1 SOL"
+2025-05-21T18:16:04.290Z,info,system,Calculating trade amounts,"Target: 10 SOL, Percentage: 0.5 SOL, Final: 0.5 SOL"
+2025-05-21T18:16:04.304Z,info,system,Transaction validation successful,"Token: valid_token, Amount: 0.5 SOL"
+2025-05-21T18:16:04.304Z,warning,safety,Daily trade limit reached,"Trades today: 1, Max: 1"
+2025-05-21T18:16:04.305Z,warning,safety,Safety limits exceeded,Skipping transaction
+2025-05-21T18:16:04.306Z,warning,safety,Daily trade limit reached,"Trades today: 1, Max: 1"
+2025-05-21T18:16:04.307Z,warning,safety,Safety limits exceeded,Skipping transaction
+2025-05-21T18:16:04.307Z,warning,safety,Daily trade limit reached,"Trades today: 1, Max: 1"
+2025-05-21T18:16:04.308Z,warning,safety,Safety limits exceeded,Skipping transaction
