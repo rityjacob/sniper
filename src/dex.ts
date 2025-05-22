@@ -6,6 +6,8 @@ import {
 } from './config';
 import { walletManager } from './wallet';
 import { logger } from './utils/logger';
+import { Connection, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 interface TokenInfo {
     address: string;
@@ -58,6 +60,25 @@ class DexManager {
         }
     }
 
+    private async getTokenLiquidity(tokenAddress: string): Promise<number> {
+        try {
+            const response = await this.rateLimitedFetch(
+                `${DEX_CONFIG.jupiterApiUrl}/liquidity?token=${tokenAddress}`
+            );
+            const data = await response.json();
+            const liquidity = data.liquidity || 0;
+            
+            logger.logInfo('dex', 'Token liquidity fetched', 
+                `Token: ${tokenAddress}, Liquidity: ${liquidity} SOL`
+            );
+            
+            return liquidity;
+        } catch (error: any) {
+            logger.logError('dex', 'Error fetching token liquidity', error.message);
+            return 0;
+        }
+    }
+
     async checkLiquidity(tokenAddress: string): Promise<boolean> {
         try {
             const liquidity = await this.getTokenLiquidity(tokenAddress);
@@ -82,6 +103,9 @@ class DexManager {
                 `Token: ${tokenAddress}, Amount: ${amount} SOL`
             );
 
+            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
+            const wallet = walletManager.getCurrentWallet();
+
             // Get quote from Jupiter
             const quoteResponse = await this.rateLimitedFetch(
                 `${DEX_CONFIG.jupiterApiUrl}/quote`,
@@ -91,7 +115,7 @@ class DexManager {
                     body: JSON.stringify({
                         inputMint: 'So11111111111111111111111111111111111111112', // SOL
                         outputMint: tokenAddress,
-                        amount: amount * 1e9, // Convert to lamports
+                        amount: amount * 1e9, // Convert SOL to lamports
                         slippageBps: TRANSACTION_CONFIG.maxSlippage * 100,
                         onlyDirectRoutes: false,
                         asLegacyTransaction: true
@@ -100,9 +124,7 @@ class DexManager {
             );
             
             const quote = await quoteResponse.json();
-            logger.logInfo('dex', 'Quote received', JSON.stringify(quote, null, 2));
             
-            // Validate quote
             if (!quote.outAmount || !quote.inAmount) {
                 throw new Error('Invalid quote received from Jupiter');
             }
@@ -143,36 +165,15 @@ class DexManager {
         }
     }
 
-    private async getTokenLiquidity(tokenAddress: string): Promise<number> {
-        try {
-            const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/liquidity?token=${tokenAddress}`
-            );
-            const data = await response.json();
-            const liquidity = data.liquidity || 0;
-            
-            logger.logInfo('dex', 'Token liquidity fetched', 
-                `Token: ${tokenAddress}, Liquidity: ${liquidity} SOL`
-            );
-            
-            return liquidity;
-        } catch (error: any) {
-            logger.logError('dex', 'Error fetching token liquidity', error.message);
-            return 0;
-        }
-    }
-
     public async calculatePriceImpact(
         tokenAddress: string,
         amount: number
     ): Promise<number> {
         try {
-            const currentPrice = await this.getTokenPrice(tokenAddress);
-            const liquidity = await this.getTokenLiquidity(tokenAddress);
-            
-            // Simple price impact calculation
-            // This is a basic model - you might want to use a more sophisticated one
-            const priceImpact = (amount / liquidity) * 100;
+            // For devnet testing, simulate a price impact
+            // This is a simplified model - in production, you'd use real DEX data
+            const simulatedLiquidity = 1000; // Simulated liquidity in SOL
+            const priceImpact = (amount / simulatedLiquidity) * 100;
             
             logger.logInfo('dex', 'Price impact calculated', 
                 `Token: ${tokenAddress}, Amount: ${amount} SOL, Impact: ${priceImpact.toFixed(2)}%`

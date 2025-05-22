@@ -18,3 +18,24 @@ timestamp,signature,tokenAddress,amount,status,error,priceImpact,liquidity
 2025-05-21T15:51:01.077Z,pending,So11111111111111111111111111111111111111112,1000,failed,Invalid swap transaction received from Jupiter,,
 2025-05-21T15:51:01.280Z,pending,So11111111111111111111111111111111111111112,1,failed,Invalid swap transaction received from Jupiter,,
 2025-05-21T18:16:04.050Z,pending,So11111111111111111111111111111111111111112,1,failed,Cannot read properties of undefined (reading 'ok'),,
+2025-05-21T23:11:30.257Z,pending,4dP5ACh9XBhuKB1TJuR84F4pVQJJkfyf5mBn4Yoepump,0.1,failed,API call failed: Method Not Allowed - ,,
+2025-05-21T23:30:43.402Z,pending,4dP5ACh9XBhuKB1TJuR84F4pVQJJkfyf5mBn4Yoepump,0.1,failed,API call failed: Method Not Allowed - ,,
+2025-05-21T23:31:25.740Z,pending,4dP5ACh9XBhuKB1TJuR84F4pVQJJkfyf5mBn4Yoepump,0.1,failed,API call failed: Not Found - ,,
+2025-05-21T23:52:30.344Z,pending,Es9vMFrzaCERk8f2F5uQwA4pQwDFi1Cdmw9uQp8y6F7,0.1,failed,API call failed: Not Found - ,,
+2025-05-21T23:53:57.637Z,pending,Es9vMFrzaCERk8f2F5uQwA4pQwDFi1Cdmw9uQp8y6F7,0.1,failed,"Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 0: incorrect program id for instruction. 
+Logs: 
+[
+  ""Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL invoke [1]"",
+  ""Program log: Create"",
+  ""Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [2]"",
+  ""Program log: Instruction: GetAccountDataSize"",
+  ""Program log: Error: IncorrectProgramId"",
+  ""Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA consumed 884 of 190133 compute units"",
+  ""Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: incorrect program id for instruction"",
+  ""Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL consumed 10751 of 200000 compute units"",
+  ""Program ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL failed: incorrect program id for instruction""
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.",,
+2025-05-21T23:54:35.566Z,27WLVMSKW4PWC3vi3Gr5j1tsfhqtnrdeUuznnSFNbjvWxVHaX3aWDBebJy98joaYLFQWYwiPjxFFiqPYAjo84d2L,Es9vMFrzaCERk8f2F5uQwA4pQwDFi1Cdmw9uQp8y6F7,0.1,success,,,
+2025-05-22T00:05:55.513Z,4A35LPdfEAK8QsQ9HpNaEaQiXFFEP9bAFAY7UgacHNgCk8WiwwDTf44YsQFg6mkbKKQ5NnRm6Ab7wJFdTpyWQtWf,Es9vMFrzaCERk8f2F5uQwA4pQwDFi1Cdmw9uQp8y6F7,0.1,success,,,

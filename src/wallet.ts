@@ -11,6 +11,13 @@ import {
     RPC_URL
 } from './config';
 import bs58 from 'bs58';
+import * as fs from 'fs';
+import {
+    getAssociatedTokenAddress,
+    createAssociatedTokenAccountInstruction,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID
+} from '@solana/spl-token';
 
 export class WalletManager {
     private connection: Connection;
@@ -23,6 +30,15 @@ export class WalletManager {
 
     private initializeWallet(): Keypair {
         try {
+            if (!WALLET_PRIVATE_KEY) {
+                // If no private key is set, try to load from target-wallet.json
+                const targetWalletPath = 'target-wallet.json';
+                if (fs.existsSync(targetWalletPath)) {
+                    const targetWalletData = JSON.parse(fs.readFileSync(targetWalletPath, 'utf-8'));
+                    return Keypair.fromSecretKey(new Uint8Array(targetWalletData));
+                }
+                throw new Error('No wallet private key found in .env or target-wallet.json');
+            }
             const privateKey = bs58.decode(WALLET_PRIVATE_KEY);
             return Keypair.fromSecretKey(privateKey);
         } catch (error) {
@@ -127,6 +143,48 @@ export class WalletManager {
     }
     public getPublicKey(): PublicKey {
         return this.wallet.publicKey;
+    }
+
+    // Methods for testing purposes
+    public getCurrentWallet(): Keypair {
+        return this.wallet;
+    }
+
+    public setCurrentWallet(wallet: Keypair) {
+        this.wallet = wallet;
+    }
+
+    async getOrCreateTokenAccount(tokenMint: PublicKey): Promise<PublicKey> {
+        try {
+            // Get the associated token account address
+            const tokenAccount = await getAssociatedTokenAddress(
+                tokenMint,
+                this.wallet.publicKey
+            );
+
+            // Check if the account exists
+            const accountInfo = await this.connection.getAccountInfo(tokenAccount);
+            
+            if (!accountInfo) {
+                // Create the account if it doesn't exist
+                const createAccountTx = new Transaction().add(
+                    createAssociatedTokenAccountInstruction(
+                        this.wallet.publicKey,
+                        tokenAccount,
+                        this.wallet.publicKey,
+                        tokenMint
+                    )
+                );
+
+                await this.signAndSendTransaction(createAccountTx);
+                console.log(`✅ Created token account: ${tokenAccount.toString()}`);
+            }
+
+            return tokenAccount;
+        } catch (error) {
+            console.error("❌ Failed to get or create token account:", error);
+            throw error;
+        }
     }
 }
 

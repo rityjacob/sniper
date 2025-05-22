@@ -1,6 +1,6 @@
-export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-export const WS_URL = process.env.SOLANA_WS_URL || 'wss://api.devnet.solana.com';
-export const NETWORK = 'devnet';
+export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+export const WS_URL = process.env.SOLANA_WS_URL || 'wss://api.mainnet-beta.solana.com';
+export const NETWORK = 'mainnet-beta';
 
 export const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS || '';
 export const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY || '';
@@ -40,7 +40,7 @@ interface SafetyConfig {
 
 export const TRANSACTION_CONFIG: TransactionConfig = {
     maxSlippage: 0.20,
-    priorityFee: 1000000,
+    priorityFee: 30000,
     maxRetries: 3,
     timeout: 30000,
     minSolBalance: 0.01,
@@ -50,9 +50,9 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
 };
 
 export const DEX_CONFIG: DexConfig = {
-    jupiterApiUrl: 'https://quote-api.jup.ag/v6',
-    minLiquidity: 1000,
-    maxPriceImpact: 5,
+    jupiterApiUrl: 'https://quote-api.jup.ag/v4',
+    minLiquidity: 5,
+    maxPriceImpact: 3,
     trustedDexes: ['RAYDIUM','ORCA','JUPITER']
 };
 
