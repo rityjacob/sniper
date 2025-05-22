@@ -13,6 +13,7 @@ interface Transaction {
     tokenAddress: string;
     amount: string;
     targetAmount?: number;
+    type: 'buy' | 'sell';
 }
 
 class TransactionManager {
@@ -34,17 +35,34 @@ class TransactionManager {
         
         this.updateTradeCounters();
 
-        // Add the buy amount calculation here
+        // Calculate amounts based on transaction type
         const targetAmount = Number(tx.amount);  // Convert string amount to number
-        const percentageAmount = targetAmount * TRANSACTION_CONFIG.percentageOfTargetTrade;
-        const finalAmount = Math.min(
-            percentageAmount,
-            TRANSACTION_CONFIG.maxBuyAmount,
-            TRANSACTION_CONFIG.maxSolPerTrade
-        );
+        let finalAmount: number;
+
+        if (tx.type === 'buy') {
+            // For buys, we take a percentage of their buy amount
+            const percentageAmount = targetAmount * TRANSACTION_CONFIG.percentageOfTargetTrade;
+            finalAmount = Math.min(
+                percentageAmount,
+                TRANSACTION_CONFIG.maxBuyAmount,
+                TRANSACTION_CONFIG.maxSolPerTrade
+            );
+        } else {
+            // For sells, we follow their exact proportion
+            // If they sell 2/10, we sell 2/10 of our holdings
+            const ourBalance = await dexManager.getTokenBalance(tx.tokenAddress);
+            const proportion = targetAmount / tx.targetAmount!; // targetAmount is what they sold, targetAmount is their total
+            finalAmount = ourBalance * proportion;
+            
+            // Still apply safety limits
+            finalAmount = Math.min(
+                finalAmount,
+                TRANSACTION_CONFIG.maxSolPerTrade
+            );
+        }
 
         logger.logInfo('system', 'Calculating trade amounts', 
-            `Target: ${targetAmount} SOL, Percentage: ${percentageAmount} SOL, Final: ${finalAmount} SOL`
+            `Type: ${tx.type}, Target: ${targetAmount} SOL, Final: ${finalAmount} SOL`
         );
 
         // Store the calculated amount for the swap
@@ -77,7 +95,7 @@ class TransactionManager {
             }
     
             logger.logInfo('system', 'Transaction validation successful', 
-                `Token: ${tx.tokenAddress}, Amount: ${tx.amount} SOL`
+                `Type: ${tx.type}, Token: ${tx.tokenAddress}, Amount: ${tx.amount} SOL`
             );
             return true;
         } catch (error: any) {
