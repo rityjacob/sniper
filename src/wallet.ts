@@ -141,6 +141,15 @@ export class WalletManager {
     public async getLatestBlockhash() {
         return await this.connection.getLatestBlockhash();
     }
+
+    public getCurrentWallet(): Keypair {
+        return this.wallet;
+    }
+
+    public setCurrentWallet(wallet: Keypair): void {
+        this.wallet = wallet;
+    }
+
     public getPublicKey(): PublicKey {
         return this.wallet.publicKey;
     }
