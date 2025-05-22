@@ -154,14 +154,6 @@ export class WalletManager {
         return this.wallet.publicKey;
     }
 
-    // Methods for testing purposes
-    public getCurrentWallet(): Keypair {
-        return this.wallet;
-    }
-
-    public setCurrentWallet(wallet: Keypair) {
-        this.wallet = wallet;
-    }
 
     async getOrCreateTokenAccount(tokenMint: PublicKey): Promise<PublicKey> {
         try {
