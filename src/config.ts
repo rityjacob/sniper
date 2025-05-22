@@ -43,9 +43,9 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
     priorityFee: 30000,
     maxRetries: 5,
     timeout: 60000,
-    minSolBalance: 0.01,
-    maxSolPerTrade: 2,
-    percentageOfTargetTrade: 0.05,
+    minSolBalance: Number(process.env.MIN_SOL_BALANCE) || 0.1,
+    maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 2,
+    percentageOfTargetTrade: Number(process.env.PERCENTAGE_OF_TARGET_TRADE) || 0.05,
     maxBuyAmount: 5,
 };
 

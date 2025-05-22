@@ -5,7 +5,7 @@ import {
     SAFETY_CONFIG,
     MONITORING_CONFIG 
 } from './config';
-import { initializeWebSocket } from './websocket';
+import { wsManager } from './websocket';
 import { transactionManager } from './transaction';
 import { dexManager } from './dex';
 import { walletManager } from './wallet';
@@ -65,7 +65,7 @@ class Sniper {
             // if (!await walletManager.checkMinimumBalance()) {
             //     throw new Error('Insufficient balance');
             // }
-            initializeWebSocket();
+            wsManager.on('transaction', this.handleTransaction.bind(this));
             this.isRunning = true;
             console.log('Sniper started successfully');
         } catch (error) {

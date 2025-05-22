@@ -4,6 +4,7 @@ node_modules/
 dist/
 *.log
 exportKey.ts
+mainwallet.json
 # macOS
 .DS_Store
 
