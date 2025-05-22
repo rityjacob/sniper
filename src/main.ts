@@ -53,7 +53,8 @@ class Sniper {
         console.log('!help - Show this help message');
         console.log('!balance <token_address> - Check token balance');
         console.log('!sell <token_address> <amount> - Sell specific amount');
-        console.log('!sellp <token_address> <percentage> - Sell percentage of holdings\n');
+        console.log('!sellp <token_address> <percentage> - Sell percentage of holdings');
+        console.log('!buy <token_address> <sol_amount> - Buy a token with a specified amount of SOL');
         this.rl.prompt();
     }
 
@@ -84,10 +85,17 @@ class Sniper {
         try {
             const success = await transactionManager.processTransaction(transaction);
             if (success) {
-                await dexManager.executeSwap(
-                    transaction.tokenAddress,
-                    transaction.amount
-                );
+                if (transaction.type === 'buy') {
+                    await dexManager.executeSwap(
+                        transaction.tokenAddress,
+                        transaction.amount
+                    );
+                } else if (transaction.type === 'sell') {
+                    await dexManager.sellToken(
+                        transaction.tokenAddress,
+                        Number(transaction.amount)
+                    );
+                }
             }
         } catch (error) {
             console.error('Error handling transaction:', error);
