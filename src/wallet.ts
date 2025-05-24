@@ -2,7 +2,8 @@ import {
     Connection,
     Keypair,
     PublicKey,
-    Transaction
+    Transaction,
+    VersionedTransaction
 } from '@solana/web3.js';
 import { 
     WALLET_PRIVATE_KEY,
@@ -62,18 +63,23 @@ export class WalletManager {
         return balance >= TRANSACTION_CONFIG.minSolBalance;
     }
 
-    async signAndSendTransaction(transaction: Transaction): Promise<string> {
+    async signAndSendTransaction(transaction: Transaction | VersionedTransaction): Promise<string> {
         try {
             // Get latest blockhash
             const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
-            transaction.recentBlockhash = blockhash;
+
+            if (transaction instanceof Transaction) {
+                // Handle legacy transaction
+                transaction.recentBlockhash = blockhash;
+                transaction.sign(this.wallet);
+            } else {
+                // Handle versioned transaction
+                transaction.sign([this.wallet]);
+            }
 
             // Add priority fee
             const priorityFee = TRANSACTION_CONFIG.priorityFee;
             console.log(`💰 Adding priority fee: ${priorityFee} lamports`);
-
-            // Sign transaction
-            transaction.sign(this.wallet);
 
             // Send transaction with priority fee
             const signature = await this.connection.sendRawTransaction(

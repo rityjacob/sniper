@@ -376,3 +376,22 @@ Response: "
 2025-05-22T00:05:53.635Z,info,system,Transaction validation successful,"Type: buy, Token: Es9vMFrzaCERk8f2F5uQwA4pQwDFi1Cdmw9uQp8y6F7, Amount: 0.005000000000000001 SOL"
 2025-05-22T00:05:53.636Z,info,dex,Executing swap,"Token: Es9vMFrzaCERk8f2F5uQwA4pQwDFi1Cdmw9uQp8y6F7, Amount: 0.1 SOL"
 2025-05-22T00:05:53.636Z,info,dex,Price impact calculated,"Token: Es9vMFrzaCERk8f2F5uQwA4pQwDFi1Cdmw9uQp8y6F7, Amount: 0.1 SOL, Impact: 0.01%"
+2025-05-24T03:45:43.644Z,info,dex,Executing swap,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 0.005 SOL"
+2025-05-24T03:45:43.762Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-24T03:48:13.990Z,info,dex,Executing swap,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 0.005 SOL"
+2025-05-24T03:48:14.091Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/quote/quote
+Status: 404
+Response: "
+2025-05-24T03:50:07.582Z,info,dex,Executing swap,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 0.005 SOL"
+2025-05-24T03:50:07.652Z,error,dex,API call failed: Method Not Allowed,"URL: https://quote-api.jup.ag/v6/quote
+Status: 405
+Response: "
+2025-05-24T03:51:05.303Z,info,dex,Executing swap,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 0.005 SOL"
+2025-05-24T03:52:05.986Z,info,dex,Executing swap,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 0.005 SOL"
+2025-05-24T03:52:06.166Z,info,dex,Swap transaction prepared,Executing transaction
+2025-05-24T03:53:04.803Z,info,dex,Executing swap,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 0.005 SOL"
+2025-05-24T03:53:04.976Z,info,dex,Swap transaction prepared,Executing transaction
+2025-05-24T03:55:04.497Z,info,dex,Executing swap,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 0.005 SOL"
+2025-05-24T03:55:04.667Z,info,dex,Swap transaction prepared,Executing transaction
