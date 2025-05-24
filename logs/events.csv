@@ -395,3 +395,103 @@ Response: "
 2025-05-24T03:53:04.976Z,info,dex,Swap transaction prepared,Executing transaction
 2025-05-24T03:55:04.497Z,info,dex,Executing swap,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 0.005 SOL"
 2025-05-24T03:55:04.667Z,info,dex,Swap transaction prepared,Executing transaction
+2025-05-24T04:17:28.640Z,error,dex,API call failed: Not Found,"URL: https://quote-api.jup.ag/v6/quote/balance?token=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&wallet=366npvfnm97Kd1Zx1PgYCCRiut2ZWr3PxfBNUD7StoQB
+Status: 404
+Response: "
+2025-05-24T04:17:28.644Z,error,dex,Error fetching token balance,API call failed: Not Found - 
+2025-05-24T17:56:30.296Z,error,dex,Error fetching token balance,"request to https://quote-api.jup.ag/v6/quote/balance?token=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&wallet=366npvfnm97Kd1Zx1PgYCCRiut2ZWr3PxfBNUD7StoQB failed, reason: read ECONNRESET"
+2025-05-24T17:56:30.300Z,error,dex,Error selling percentage of holdings,No tokens available to sell
+2025-05-24T18:27:05.139Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote/quote failed, reason: read ECONNRESET"
+2025-05-24T18:27:05.143Z,error,dex,Error selling percentage of holdings,"request to https://quote-api.jup.ag/v6/quote/quote failed, reason: read ECONNRESET"
+2025-05-24T18:33:19.575Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote failed, reason: read ECONNRESET"
+2025-05-24T18:33:19.581Z,error,dex,Error selling percentage of holdings,"request to https://quote-api.jup.ag/v6/quote failed, reason: read ECONNRESET"
+2025-05-24T18:33:46.650Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote failed, reason: read ECONNRESET"
+2025-05-24T18:38:49.588Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T18:38:49.592Z,error,dex,Error selling percentage of holdings,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T18:40:48.017Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T18:40:48.018Z,error,dex,Error selling percentage of holdings,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T18:43:31.225Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T18:43:31.236Z,error,dex,Error selling percentage of holdings,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:15:53.032Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:15:53.036Z,error,dex,Error selling percentage of holdings,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:20:25.552Z,warning,dex,Retrying API call (1/3),"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Delay: 1000ms
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:20:26.606Z,warning,dex,Retrying API call (2/3),"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Delay: 2000ms
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:20:28.660Z,warning,dex,Retrying API call (3/3),"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Delay: 4000ms
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:20:32.712Z,error,dex,API call failed after retries,"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:20:32.713Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:20:32.713Z,error,dex,Error selling percentage of holdings,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:04.874Z,warning,dex,Retrying API call (1/3),"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Delay: 1000ms
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:05.932Z,warning,dex,Retrying API call (2/3),"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Delay: 2000ms
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:07.980Z,warning,dex,Retrying API call (3/3),"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Delay: 4000ms
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:12.033Z,error,dex,API call failed after retries,"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:12.034Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:12.035Z,error,dex,Error selling percentage of holdings,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:46.365Z,warning,dex,Retrying API call (1/3),"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Delay: 1000ms
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:47.426Z,warning,dex,Retrying API call (2/3),"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Delay: 2000ms
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:49.475Z,warning,dex,Retrying API call (3/3),"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Delay: 4000ms
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:53.530Z,error,dex,API call failed after retries,"URL: https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false
+Error: request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:53.531Z,error,dex,Error calculating expected return,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T19:22:53.531Z,error,dex,Error selling percentage of holdings,"request to https://quote-api.jup.ag/v6/quote?inputMint=JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump&outputMint=So11111111111111111111111111111111111111112&amount=36314714&slippageBps=10&onlyDirectRoutes=false&asLegacyTransaction=false failed, reason: read ECONNRESET"
+2025-05-24T22:11:51.545Z,info,dex,Price impact calculated,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 36.314714 SOL, Impact: 3.63%"
+2025-05-24T22:11:51.559Z,info,dex,Selling percentage of holdings,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Percentage: 100%, Amount: 36.314714, Expected SOL: 0.004688242"
+2025-05-24T22:11:51.648Z,info,dex,Executing sell,"Token: JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump, Amount: 36.314714 tokens"
+2025-05-24T22:11:51.749Z,info,dex,Sell quote received,"{
+  ""inputMint"": ""JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump"",
+  ""inAmount"": ""36314714"",
+  ""outputMint"": ""So11111111111111111111111111111111111111112"",
+  ""outAmount"": ""4688242"",
+  ""otherAmountThreshold"": ""4683554"",
+  ""swapMode"": ""ExactIn"",
+  ""slippageBps"": 10,
+  ""platformFee"": null,
+  ""priceImpactPct"": ""0.0050077875967263062612069224"",
+  ""routePlan"": [
+    {
+      ""swapInfo"": {
+        ""ammKey"": ""FYAnFcdjkcfAkbtZqixnTqNVLoDjJft82L5FFgPaSWe3"",
+        ""label"": ""Raydium"",
+        ""inputMint"": ""JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump"",
+        ""outputMint"": ""So11111111111111111111111111111111111111112"",
+        ""inAmount"": ""36314714"",
+        ""outAmount"": ""4688242"",
+        ""feeAmount"": ""90786"",
+        ""feeMint"": ""JB2wezZLdzWfnaCfHxLg193RS3Rh51ThiXxEDWQDpump""
+      },
+      ""percent"": 100
+    }
+  ],
+  ""contextSlot"": 342234447,
+  ""timeTaken"": 0.00235069,
+  ""swapUsdValue"": ""0.8294505269445868956907634022"",
+  ""simplerRouteUsed"": false,
+  ""mostReliableAmmsQuoteReport"": {
+    ""info"": {
+      ""FYAnFcdjkcfAkbtZqixnTqNVLoDjJft82L5FFgPaSWe3"": ""4688242"",
+      ""Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"": ""4676697""
+    }
+  },
+  ""useIncurredSlippageForQuoting"": null,
+  ""otherRoutePlans"": null
+}"
+2025-05-24T22:11:51.920Z,info,dex,Sell transaction prepared,Executing transaction
