@@ -6,7 +6,7 @@ import {
 } from './config';
 import { walletManager } from './wallet';
 import { logger } from './utils/logger';
-import { Connection, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, SystemProgram, VersionedTransaction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 interface TokenInfo {
@@ -107,19 +107,20 @@ class DexManager {
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter
+            const quoteParams = new URLSearchParams({
+                inputMint: 'So11111111111111111111111111111111111111112', // SOL
+                outputMint: tokenAddress,
+                amount: Math.floor(amount * 1e9).toString(), // Convert SOL to lamports
+                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
+                onlyDirectRoutes: 'false',
+                asLegacyTransaction: 'false' // Use versioned transactions
+            });
+
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/quote`,
+                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
                 {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        inputMint: 'So11111111111111111111111111111111111111112', // SOL
-                        outputMint: tokenAddress,
-                        amount: amount * 1e9, // Convert SOL to lamports
-                        slippageBps: TRANSACTION_CONFIG.maxSlippage * 100,
-                        onlyDirectRoutes: false,
-                        asLegacyTransaction: true
-                    })
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
                 }
             );
             
@@ -131,7 +132,7 @@ class DexManager {
 
             // Get swap transaction
             const swapResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/swap`,
+                'https://quote-api.jup.ag/v6/swap',
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -152,10 +153,12 @@ class DexManager {
 
             logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
             
+            // Decode and execute the swap using VersionedTransaction
+            const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
+            const transaction = VersionedTransaction.deserialize(transactionBuffer);
+            
             // Execute the swap
-            const signature = await walletManager.signAndSendTransaction(
-                swapTransaction.swapTransaction
-            );
+            const signature = await walletManager.signAndSendTransaction(transaction);
             
             logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
             return signature;

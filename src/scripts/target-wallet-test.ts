@@ -15,10 +15,10 @@ async function simulateTargetWalletPurchase() {
 
         console.log('🎯 Target Wallet Address:', targetWallet.publicKey.toString());
 
-        // Connect to devnet
+        // Connect to mainnet
         const connection = new Connection(RPC_URL, 'confirmed');
         
-        // Get token to buy (you can replace this with any token address on devnet)
+        // Get token to buy
         const tokenAddress = process.env.TOKEN_ADDRESS;
         if (!tokenAddress) {
             throw new Error('Please set TOKEN_ADDRESS in .env file');
