@@ -160,7 +160,6 @@ export class WalletManager {
         return this.wallet.publicKey;
     }
 
-
     async getOrCreateTokenAccount(tokenMint: PublicKey): Promise<PublicKey> {
         try {
             // Get the associated token account address
@@ -192,6 +191,10 @@ export class WalletManager {
             console.error("❌ Failed to get or create token account:", error);
             throw error;
         }
+    }
+
+    public getConnection(): Connection {
+        return this.connection;
     }
 }
 
