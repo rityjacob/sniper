@@ -39,20 +39,20 @@ interface SafetyConfig {
 }
 
 export const TRANSACTION_CONFIG: TransactionConfig = {
-    maxSlippage: 0.10,
-    priorityFee: 30000,
-    maxRetries: 5,
-    timeout: 60000,
+    maxSlippage: 0.05,
+    priorityFee: 50000,
+    maxRetries: 3,
+    timeout: 30000,
     minSolBalance: Number(process.env.MIN_SOL_BALANCE) || 0.1,
     maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 2,
     percentageOfTargetTrade: Number(process.env.PERCENTAGE_OF_TARGET_TRADE) || 0.05,
-    maxBuyAmount: 5,
+    maxBuyAmount: 2,
 };
 
 export const DEX_CONFIG: DexConfig = {
     jupiterApiUrl: 'https://quote-api.jup.ag/v6',
-    minLiquidity: 1000,
-    maxPriceImpact: 3,
+    minLiquidity: 2000,
+    maxPriceImpact: 2,
     trustedDexes: ['RAYDIUM','ORCA','JUPITER']
 };
 
@@ -64,9 +64,9 @@ export const MONITORING_CONFIG: MonitoringConfig = {
 };
 
 export const SAFETY_CONFIG: SafetyConfig = {
-    maxTradesPerHour: 5,
-    tradeCooldown: 30000,
-    maxDailyTradeValue: 10,
+    maxTradesPerHour: 3,
+    tradeCooldown: 60000,
+    maxDailyTradeValue: 5,
     blacklistedTokens: [],
     enableEmergencyStop: true
 };

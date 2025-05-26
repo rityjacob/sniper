@@ -6,6 +6,8 @@ import {
 } from './config';
 import { dexManager } from './dex';
 import { logger } from './utils/logger';
+import { walletManager } from './wallet';
+import { PublicKey } from '@solana/web3.js';
 
 interface Transaction {
     signature: string;
@@ -32,11 +34,32 @@ class TransactionManager {
             logger.logWarning('safety', 'Trade cooldown active', 'Skipping transaction');
             return false;
         }
+
+        // Additional mainnet safety checks
+        if (!tx.tokenAddress || !tx.amount) {
+            logger.logWarning('safety', 'Invalid transaction data', 'Missing required fields');
+            return false;
+        }
+
+        // Validate token address format
+        try {
+            new PublicKey(tx.tokenAddress);
+        } catch (error) {
+            logger.logWarning('safety', 'Invalid token address format', tx.tokenAddress);
+            return false;
+        }
+
+        // Validate amount is a positive number
+        const amount = Number(tx.amount);
+        if (isNaN(amount) || amount <= 0) {
+            logger.logWarning('safety', 'Invalid amount', `Amount: ${tx.amount}`);
+            return false;
+        }
         
         this.updateTradeCounters();
 
         // Calculate amounts based on transaction type
-        const targetAmount = Number(tx.amount);  // Convert string amount to number
+        const targetAmount = Number(tx.amount);
         let finalAmount: number;
 
         if (tx.type === 'buy') {
@@ -47,11 +70,21 @@ class TransactionManager {
                 TRANSACTION_CONFIG.maxBuyAmount,
                 TRANSACTION_CONFIG.maxSolPerTrade
             );
+
+            // Additional check for minimum trade amount
+            if (finalAmount < 0.01) {
+                logger.logWarning('safety', 'Trade amount too small', `Amount: ${finalAmount} SOL`);
+                return false;
+            }
         } else {
             // For sells, we follow their exact proportion
-            // If they sell 2/10, we sell 2/10 of our holdings
             const ourBalance = await dexManager.getTokenBalance(tx.tokenAddress);
-            const proportion = targetAmount / tx.targetAmount!; // targetAmount is what they sold, targetAmount is their total
+            if (ourBalance <= 0) {
+                logger.logWarning('safety', 'No tokens to sell', `Token: ${tx.tokenAddress}`);
+                return false;
+            }
+
+            const proportion = targetAmount / tx.targetAmount!;
             finalAmount = ourBalance * proportion;
             
             // Still apply safety limits
@@ -90,6 +123,15 @@ class TransactionManager {
             if (priceImpact > DEX_CONFIG.maxPriceImpact) {
                 logger.logWarning('dex', 'Price impact too high', 
                     `Impact: ${priceImpact}%, Max: ${DEX_CONFIG.maxPriceImpact}%`
+                );
+                return false;
+            }
+
+            // Check wallet balance before proceeding
+            const walletBalance = await walletManager.getBalance();
+            if (walletBalance < TRANSACTION_CONFIG.minSolBalance) {
+                logger.logWarning('safety', 'Insufficient wallet balance', 
+                    `Balance: ${walletBalance} SOL, Min Required: ${TRANSACTION_CONFIG.minSolBalance} SOL`
                 );
                 return false;
             }
