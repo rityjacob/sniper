@@ -3,8 +3,7 @@ import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import { dexManager } from './dex';
 import { logger } from './utils/logger';
-// If you see type errors for express or body-parser, run:
-// npm install --save-dev @types/express @types/body-parser
+import { buyPrices } from './profitTracker';
 
 dotenv.config();
 
@@ -44,10 +43,23 @@ async function handleSwap(data: any) {
 
     logger.logInfo('system', `🔄 Swap detected. Token: ${tokenMint}, Amount: ${amountInSol} SOL`);
 
+    // Get the current price in SOL for the token
+    let currentPrice = 0;
+    try {
+      currentPrice = await dexManager.getTokenPrice(tokenMint);
+    } catch (err) {
+      logger.logError('system', '❌ Error fetching token price', err instanceof Error ? err.message : String(err));
+    }
+
     // Trigger the bot's buy logic
     try {
       await dexManager.executeSwap(tokenMint, amountInSol);
       logger.logInfo('system', `🚀 Copy trade triggered: Bought ${tokenMint} for ${amountInSol} SOL`);
+      // Track the buy price and amount
+      if (currentPrice > 0) {
+        buyPrices[tokenMint] = { price: currentPrice, amount: amountInSol };
+        logger.logInfo('system', `💾 Tracked buy: ${tokenMint} at ${currentPrice} SOL`);
+      }
     } catch (err) {
       logger.logError('system', '❌ Error executing copy trade', err instanceof Error ? err.message : String(err));
     }
@@ -55,6 +67,29 @@ async function handleSwap(data: any) {
     logger.logError('system', '❌ Error processing swap', err instanceof Error ? err.message : String(err));
   }
 }
+
+// Periodically check for profit targets and auto-sell
+setInterval(async () => {
+  for (const tokenMint in buyPrices) {
+    const { price: buyPrice, amount } = buyPrices[tokenMint];
+    let currentPrice = 0;
+    try {
+      currentPrice = await dexManager.getTokenPrice(tokenMint);
+    } catch (err) {
+      logger.logError('system', '❌ Error fetching token price for sell check', err instanceof Error ? err.message : String(err));
+      continue;
+    }
+    if (currentPrice >= buyPrice * 1.5) {
+      try {
+        await dexManager.sellToken(tokenMint, amount);
+        logger.logInfo('system', `🎉 Sold ${tokenMint} for 150% profit! (Buy: ${buyPrice}, Sell: ${currentPrice})`);
+        delete buyPrices[tokenMint];
+      } catch (err) {
+        logger.logError('system', '❌ Error executing auto-sell', err instanceof Error ? err.message : String(err));
+      }
+    }
+  }
+}, 60 * 1000); // Check every minute
 
 // Health check endpoint
 app.get('/health', (_req: Request, res: Response) => {

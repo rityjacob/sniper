@@ -39,3 +39,4 @@ Logs:
 Catch the `SendTransactionError` and call `getLogs()` on it for full details.",,
 2025-05-21T23:54:35.566Z,27WLVMSKW4PWC3vi3Gr5j1tsfhqtnrdeUuznnSFNbjvWxVHaX3aWDBebJy98joaYLFQWYwiPjxFFiqPYAjo84d2L,Es9vMFrzaCERk8f2F5uQwA4pQwDFi1Cdmw9uQp8y6F7,0.1,success,,,
 2025-05-22T00:05:55.513Z,4A35LPdfEAK8QsQ9HpNaEaQiXFFEP9bAFAY7UgacHNgCk8WiwwDTf44YsQFg6mkbKKQ5NnRm6Ab7wJFdTpyWQtWf,Es9vMFrzaCERk8f2F5uQwA4pQwDFi1Cdmw9uQp8y6F7,0.1,success,,,
+2025-05-26T23:23:49.384Z,pending,FAKE_TOKEN_MINT,1,failed,API call failed: Method Not Allowed - ,,
