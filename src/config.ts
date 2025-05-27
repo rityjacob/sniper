@@ -53,7 +53,7 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
 };
 
 export const DEX_CONFIG: DexConfig = {
-    jupiterApiUrl: 'https://quote-api.jup.ag/v6',
+    jupiterApiUrl: 'https://quote-api.jup.ag',
     minLiquidity: 2000,
     maxPriceImpact: 2,
     trustedDexes: ['RAYDIUM','ORCA','JUPITER']
