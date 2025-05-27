@@ -15,22 +15,31 @@ app.use(bodyParser.json());
 
 // Webhook endpoint for Helius
 app.post('/webhook', async (req: Request, res: Response) => {
-  res.sendStatus(200); // Respond immediately to Helius
+  res.sendStatus(200);
 
   try {
-    const data = req.body;
-    logger.logInfo('system', '🔔 Webhook received', JSON.stringify(data));
-
-    // Only handle SWAP events for copy trading
-    if (data.type === 'SWAP' && data.events && data.events.swap) {
-      await handleSwap(data);
+    let data = req.body;
+    // If the payload is an array, process each event
+    if (Array.isArray(data)) {
+      for (const event of data) {
+        await handleEvent(event);
+      }
     } else {
-      logger.logInfo('system', `⚠️ Unhandled event type: ${data.type}`);
+      await handleEvent(data);
     }
   } catch (err) {
     logger.logError('system', '❌ Error processing webhook', err instanceof Error ? err.message : String(err));
   }
 });
+
+async function handleEvent(data: any) {
+  logger.logInfo('system', '🔔 Webhook received', JSON.stringify(data));
+  if (data.type === 'SWAP' && data.events && data.events.swap) {
+    await handleSwap(data);
+  } else {
+    logger.logInfo('system', `⚠️ Unhandled event type: ${data.type}`);
+  }
+}
 
 async function handleSwap(data: any) {
   const swap = data?.events?.swap;
