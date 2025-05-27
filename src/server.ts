@@ -50,11 +50,24 @@ async function handleSwap(data: any) {
       return;
     }
 
+    // Log the target wallet address for debugging
+    logger.logInfo('system', 'Target wallet address', process.env.TARGET_WALLET_ADDRESS);
+
+    // Log all token transfers for debugging
+    logger.logInfo('system', 'Token transfers', JSON.stringify(tokenTransfers, null, 2));
+
     // Find the token being bought (token that was transferred to the target wallet)
-    const buyTransfer = tokenTransfers.find((transfer: any) => 
-      transfer.toUserAccount === process.env.TARGET_WALLET_ADDRESS ||
-      transfer.toTokenAccount === process.env.TARGET_WALLET_ADDRESS
-    );
+    const buyTransfer = tokenTransfers.find((transfer: any) => {
+      const isTargetWallet = 
+        transfer.toUserAccount === process.env.TARGET_WALLET_ADDRESS ||
+        transfer.toTokenAccount === process.env.TARGET_WALLET_ADDRESS;
+      
+      if (isTargetWallet) {
+        logger.logInfo('system', 'Found matching transfer', JSON.stringify(transfer, null, 2));
+      }
+      
+      return isTargetWallet;
+    });
 
     if (!buyTransfer) {
       logger.logWarning('system', 'No buy transfer found in swap data');
