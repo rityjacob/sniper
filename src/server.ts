@@ -13,6 +13,12 @@ const PORT = process.env.PORT || 3000;
 
 app.use(bodyParser.json());
 
+// Add this at the top of the file after imports
+if (!process.env.TARGET_WALLET_ADDRESS) {
+  logger.logError('system', '❌ TARGET_WALLET_ADDRESS environment variable is not set');
+  process.exit(1);
+}
+
 // Webhook endpoint for Helius
 app.post('/webhook', async (req: Request, res: Response) => {
   res.sendStatus(200);
@@ -50,8 +56,8 @@ async function handleSwap(data: any) {
       return;
     }
 
-    // Log the target wallet address for debugging
-    logger.logInfo('system', 'Target wallet address', process.env.TARGET_WALLET_ADDRESS);
+    const targetWallet = process.env.TARGET_WALLET_ADDRESS;
+    logger.logInfo('system', 'Target wallet address', targetWallet);
 
     // Log all token transfers for debugging
     logger.logInfo('system', 'Token transfers', JSON.stringify(tokenTransfers, null, 2));
@@ -59,8 +65,8 @@ async function handleSwap(data: any) {
     // Find the token being bought (token that was transferred to the target wallet)
     const buyTransfer = tokenTransfers.find((transfer: any) => {
       const isTargetWallet = 
-        transfer.toUserAccount === process.env.TARGET_WALLET_ADDRESS ||
-        transfer.toTokenAccount === process.env.TARGET_WALLET_ADDRESS;
+        transfer.toUserAccount === targetWallet ||
+        transfer.toTokenAccount === targetWallet;
       
       if (isTargetWallet) {
         logger.logInfo('system', 'Found matching transfer', JSON.stringify(transfer, null, 2));
@@ -80,7 +86,7 @@ async function handleSwap(data: any) {
     // Get the SOL amount from native transfers
     const nativeTransfers = data.nativeTransfers || [];
     const solTransfer = nativeTransfers.find((transfer: any) => 
-      transfer.fromUserAccount === process.env.TARGET_WALLET_ADDRESS
+      transfer.fromUserAccount === targetWallet
     );
 
     const amountInSol = solTransfer ? solTransfer.amount / 1e9 : 0;
