@@ -45,36 +45,32 @@ async function handleSwap(data: any) {
   const swap = data?.events?.swap;
   if (!swap) return;
 
+  // Extract tokenOut (the token bought) and amountIn (SOL spent) from real Helius payload
+  const tokenMint = swap.tokenOutputs?.[0]?.mint;
+  const amountInLamports = Number(swap.nativeInput?.amount);
+  const amountInSol = amountInLamports / 1e9;
+
+  logger.logInfo('system', `🔄 Swap detected. Token: ${tokenMint}, Amount: ${amountInSol} SOL`);
+
+  // Get the current price in SOL for the token
+  let currentPrice = 0;
   try {
-    // Extract tokenOut (the token bought) and amountIn (SOL spent)
-    const tokenMint = swap.tokenOut;
-    const amountInLamports = swap.amountIn;
-    const amountInSol = amountInLamports / 1e9;
+    currentPrice = await dexManager.getTokenPrice(tokenMint);
+  } catch (err) {
+    logger.logError('system', '❌ Error fetching token price', err instanceof Error ? err.message : String(err));
+  }
 
-    logger.logInfo('system', `🔄 Swap detected. Token: ${tokenMint}, Amount: ${amountInSol} SOL`);
-
-    // Get the current price in SOL for the token
-    let currentPrice = 0;
-    try {
-      currentPrice = await dexManager.getTokenPrice(tokenMint);
-    } catch (err) {
-      logger.logError('system', '❌ Error fetching token price', err instanceof Error ? err.message : String(err));
-    }
-
-    // Trigger the bot's buy logic
-    try {
-      await dexManager.executeSwap(tokenMint, amountInSol);
-      logger.logInfo('system', `🚀 Copy trade triggered: Bought ${tokenMint} for ${amountInSol} SOL`);
-      // Track the buy price and amount
-      if (currentPrice > 0) {
-        buyPrices[tokenMint] = { price: currentPrice, amount: amountInSol };
-        logger.logInfo('system', `💾 Tracked buy: ${tokenMint} at ${currentPrice} SOL`);
-      }
-    } catch (err) {
-      logger.logError('system', '❌ Error executing copy trade', err instanceof Error ? err.message : String(err));
+  // Trigger the bot's buy logic
+  try {
+    await dexManager.executeSwap(tokenMint, amountInSol);
+    logger.logInfo('system', `🚀 Copy trade triggered: Bought ${tokenMint} for ${amountInSol} SOL`);
+    // Track the buy price and amount
+    if (currentPrice > 0) {
+      buyPrices[tokenMint] = { price: currentPrice, amount: amountInSol };
+      logger.logInfo('system', `💾 Tracked buy: ${tokenMint} at ${currentPrice} SOL`);
     }
   } catch (err) {
-    logger.logError('system', '❌ Error processing swap', err instanceof Error ? err.message : String(err));
+    logger.logError('system', '❌ Error executing copy trade', err instanceof Error ? err.message : String(err));
   }
 }
 
