@@ -6,7 +6,7 @@ import {
 } from './config';
 import { walletManager } from './wallet';
 import { logger } from './utils/logger';
-import { Connection, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, SystemProgram, VersionedTransaction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 interface TokenInfo {
@@ -140,8 +140,10 @@ class DexManager {
 
             logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
             
-            // Deserialize the transaction
-            const transaction = Transaction.from(Buffer.from(swapTransaction.swapTransaction, 'base64'));
+            // Deserialize the versioned transaction
+            const transaction = VersionedTransaction.deserialize(
+                Buffer.from(swapTransaction.swapTransaction, 'base64')
+            );
             
             // Execute the swap
             const signature = await walletManager.signAndSendTransaction(transaction);
