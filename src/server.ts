@@ -34,7 +34,7 @@ app.post('/webhook', async (req: Request, res: Response) => {
 
 async function handleEvent(data: any) {
   logger.logInfo('system', '🔔 Webhook received', JSON.stringify(data));
-  if (data.type === 'SWAP' && data.events && data.events.swap) {
+  if (data.type === 'SWAP') {
     await handleSwap(data);
   } else {
     logger.logInfo('system', `⚠️ Unhandled event type: ${data.type}`);
