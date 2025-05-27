@@ -44,10 +44,10 @@ class DexManager {
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
             const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/price?token=${tokenAddress}`
+                `${DEX_CONFIG.jupiterApiUrl}/v6/price?ids=${tokenAddress}`
             );
             const data = await response.json();
-            const price = data.price || 0;
+            const price = data.data?.[tokenAddress]?.price || 0;
             
             logger.logInfo('dex', 'Token price fetched', 
                 `Token: ${tokenAddress}, Price: ${price} SOL`
@@ -108,19 +108,7 @@ class DexManager {
 
             // Get quote from Jupiter
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/quote`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        inputMint: 'So11111111111111111111111111111111111111112', // SOL
-                        outputMint: tokenAddress,
-                        amount: amount * 1e9, // Convert SOL to lamports
-                        slippageBps: TRANSACTION_CONFIG.maxSlippage * 100,
-                        onlyDirectRoutes: false,
-                        asLegacyTransaction: true
-                    })
-                }
+                `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${amount * 1e9}&slippageBps=${TRANSACTION_CONFIG.maxSlippage * 100}`
             );
             
             const quote = await quoteResponse.json();
@@ -131,7 +119,7 @@ class DexManager {
 
             // Get swap transaction
             const swapResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/swap`,
+                `${DEX_CONFIG.jupiterApiUrl}/v6/swap`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -200,19 +188,7 @@ class DexManager {
 
             // Get quote from Jupiter
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/quote`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        inputMint: tokenAddress,
-                        outputMint: 'So11111111111111111111111111111111111111112', // SOL
-                        amount: tokenAmount,
-                        slippageBps: TRANSACTION_CONFIG.maxSlippage * 100,
-                        onlyDirectRoutes: false,
-                        asLegacyTransaction: true
-                    })
-                }
+                `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=${tokenAddress}&outputMint=So11111111111111111111111111111111111111112&amount=${tokenAmount}&slippageBps=${TRANSACTION_CONFIG.maxSlippage * 100}`
             );
             
             const quote = await quoteResponse.json();
@@ -225,7 +201,7 @@ class DexManager {
 
             // Get swap transaction
             const swapResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/swap`,
+                `${DEX_CONFIG.jupiterApiUrl}/v6/swap`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -261,17 +237,29 @@ class DexManager {
 
     async getTokenBalance(tokenAddress: string): Promise<number> {
         try {
-            const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/balance?token=${tokenAddress}&wallet=${walletManager.getPublicKey().toString()}`
+            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
+            const wallet = walletManager.getCurrentWallet();
+            const tokenPublicKey = new PublicKey(tokenAddress);
+            const walletPublicKey = walletManager.getPublicKey();
+            
+            // Get the associated token account
+            const associatedTokenAccount = await PublicKey.findProgramAddress(
+                [
+                    walletPublicKey.toBuffer(),
+                    TOKEN_PROGRAM_ID.toBuffer(),
+                    tokenPublicKey.toBuffer(),
+                ],
+                ASSOCIATED_TOKEN_PROGRAM_ID
             );
-            const data = await response.json();
-            const balance = data.balance || 0;
+
+            // Get token balance
+            const balance = await connection.getTokenAccountBalance(associatedTokenAccount[0]);
             
             logger.logInfo('dex', 'Token balance fetched', 
-                `Token: ${tokenAddress}, Balance: ${balance}`
+                `Token: ${tokenAddress}, Balance: ${balance.value.uiAmount}`
             );
             
-            return balance;
+            return balance.value.uiAmount || 0;
         } catch (error: any) {
             logger.logError('dex', 'Error fetching token balance', error.message);
             return 0;
@@ -285,19 +273,7 @@ class DexManager {
     }> {
         try {
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/quote`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        inputMint: tokenAddress,
-                        outputMint: 'So11111111111111111111111111111111111111112',
-                        amount: tokenAmount,
-                        slippageBps: TRANSACTION_CONFIG.maxSlippage * 100,
-                        onlyDirectRoutes: false,
-                        asLegacyTransaction: true
-                    })
-                }
+                `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=${tokenAddress}&outputMint=So11111111111111111111111111111111111111112&amount=${tokenAmount}&slippageBps=${TRANSACTION_CONFIG.maxSlippage * 100}`
             );
             
             const quote = await quoteResponse.json();
