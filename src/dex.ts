@@ -140,10 +140,11 @@ class DexManager {
 
             logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
             
+            // Deserialize the transaction
+            const transaction = Transaction.from(Buffer.from(swapTransaction.swapTransaction, 'base64'));
+            
             // Execute the swap
-            const signature = await walletManager.signAndSendTransaction(
-                swapTransaction.swapTransaction
-            );
+            const signature = await walletManager.signAndSendTransaction(transaction);
             
             logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
             return signature;
@@ -222,10 +223,11 @@ class DexManager {
 
             logger.logInfo('dex', 'Sell transaction prepared', 'Executing transaction');
             
+            // Deserialize the transaction
+            const transaction = Transaction.from(Buffer.from(swapTransaction.swapTransaction, 'base64'));
+            
             // Execute the swap
-            const signature = await walletManager.signAndSendTransaction(
-                swapTransaction.swapTransaction
-            );
+            const signature = await walletManager.signAndSendTransaction(transaction);
             
             logger.logTransactionSuccess(signature, tokenAddress, tokenAmount.toString());
             return signature;
