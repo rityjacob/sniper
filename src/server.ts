@@ -21,16 +21,24 @@ if (!process.env.TARGET_WALLET_ADDRESS) {
 
 // Webhook endpoint for Helius
 app.post('/webhook', async (req: Request, res: Response) => {
+  logger.logInfo('system', '📥 Webhook request received', JSON.stringify({
+    headers: req.headers,
+    body: req.body,
+    timestamp: new Date().toISOString()
+  }, null, 2));
+
   res.sendStatus(200);
 
   try {
     let data = req.body;
     // If the payload is an array, process each event
     if (Array.isArray(data)) {
+      logger.logInfo('system', `Processing ${data.length} events`);
       for (const event of data) {
         await handleEvent(event);
       }
     } else {
+      logger.logInfo('system', 'Processing single event');
       await handleEvent(data);
     }
   } catch (err) {
@@ -141,9 +149,16 @@ setInterval(async () => {
   }
 }, 60 * 1000); // Check every minute
 
-// Health check endpoint
+// Health check endpoint with more detailed response
 app.get('/health', (_req: Request, res: Response) => {
-  res.status(200).send('OK');
+  const healthInfo = {
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    targetWallet: process.env.TARGET_WALLET_ADDRESS ? 'Set' : 'Not Set',
+    port: PORT
+  };
+  res.status(200).json(healthInfo);
 });
 
 app.listen(PORT, () => {
