@@ -103,6 +103,16 @@ class DexManager {
                 `Token: ${tokenAddress}, Amount: ${amount} SOL`
             );
 
+            // Check wallet balance first
+            const balance = await walletManager.getBalance();
+            const requiredBalance = amount + TRANSACTION_CONFIG.minSolBalance;
+            
+            if (balance < requiredBalance) {
+                const error = `Insufficient balance. Have: ${balance} SOL, Need: ${requiredBalance} SOL`;
+                logger.logError('dex', 'Insufficient balance for swap', error);
+                throw new Error(error);
+            }
+
             const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
             const wallet = walletManager.getCurrentWallet();
 
@@ -151,7 +161,16 @@ class DexManager {
             logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
             return signature;
         } catch (error: any) {
-            logger.logTransactionFailure('pending', tokenAddress, amount.toString(), error.message);
+            const errorMessage = error.message || 'Unknown error';
+            logger.logTransactionFailure('pending', tokenAddress, amount.toString(), errorMessage);
+            
+            // Check if it's a simulation error and extract more details
+            if (error.logs) {
+                logger.logError('dex', 'Transaction simulation failed', 
+                    `Logs: ${JSON.stringify(error.logs, null, 2)}`
+                );
+            }
+            
             throw error;
         }
     }
