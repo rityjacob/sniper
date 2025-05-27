@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
+import fetch from 'node-fetch';
 import { dexManager } from './dex';
 import { logger } from './utils/logger';
 import { buyPrices } from './profitTracker';
@@ -98,4 +99,14 @@ app.get('/health', (_req: Request, res: Response) => {
 
 app.listen(PORT, () => {
   logger.logInfo('system', `🚀 Webhook server running on port ${PORT}`);
-}); 
+});
+
+// Self-ping to keep Render server awake
+const SELF_URL = process.env.SELF_URL;
+if (SELF_URL) {
+  setInterval(() => {
+    fetch(`${SELF_URL}/health`)
+      .then((res: any) => console.log(`[Self-ping] Status: ${res.status}`))
+      .catch((err: any) => console.error('[Self-ping] Error:', err));
+  }, 14 * 60 * 1000); // Every 10 minutes
+} 
