@@ -52,7 +52,8 @@ async function handleSwap(data: any) {
 
     // Find the token being bought (token that was transferred to the target wallet)
     const buyTransfer = tokenTransfers.find((transfer: any) => 
-      transfer.toUserAccount === process.env.TARGET_WALLET_ADDRESS
+      transfer.toUserAccount === process.env.TARGET_WALLET_ADDRESS ||
+      transfer.toTokenAccount === process.env.TARGET_WALLET_ADDRESS
     );
 
     if (!buyTransfer) {
