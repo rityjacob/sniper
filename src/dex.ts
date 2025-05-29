@@ -31,11 +31,35 @@ class DexManager {
         const response = await fetch(url, options);
         
         if (!response.ok) {
-            const errorJson = await response.json();
-            logger.logError('dex', `API call failed: ${response.statusText}`, 
-                `URL: ${url}\nStatus: ${response.status}\nResponse: ${JSON.stringify(errorJson)}`
-            );
-            throw new Error(`API call failed: ${response.statusText} - ${JSON.stringify(errorJson)}`);
+            let errorBody: any = '<unreadable>';
+            const contentType = response.headers.get('content-type') || '';
+            
+            try {
+                if (contentType.includes('application/json')) {
+                    errorBody = await response.json();
+                } else {
+                    errorBody = await response.text();
+                }
+            } catch (err) {
+                errorBody = '[Failed to parse error body]';
+            }
+            
+            const fullError = {
+                url,
+                options,
+                status: response.status,
+                statusText: response.statusText,
+                headers: Object.fromEntries(response.headers.entries()),
+                body: errorBody
+            };
+            
+            logger.logError('dex', `API call failed: ${response.statusText}`, JSON.stringify(fullError, null, 2));
+            console.error('🔴 Full API Error:');
+            console.dir(fullError, { depth: null });
+            
+            const error = new Error(`API call failed: ${response.statusText}`);
+            (error as any).details = fullError;
+            throw error;
         }
         
         return response;
@@ -62,13 +86,8 @@ class DexManager {
             
             return price;
         } catch (error: any) {
-            console.error('Debug - Token Price Error:', {
-                error: error.message,
-                url: `${DEX_CONFIG.jupiterApiUrl}/price`,
-                status: error.status,
-                response: error.response,
-                requestBody: { ids: [tokenAddress] }
-            });
+            console.error('🔴 Debug - Token Price Error:');
+            console.dir(error, { depth: null });
             logger.logError('dex', 'Failed to get token price', error.message);
             throw error;
         }
