@@ -44,7 +44,14 @@ class DexManager {
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
             const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/price?ids=${tokenAddress}`
+                `${DEX_CONFIG.jupiterApiUrl}/price`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        ids: [tokenAddress]
+                    })
+                }
             );
             const data = await response.json();
             const price = data.data?.[tokenAddress]?.price || 0;
@@ -57,9 +64,10 @@ class DexManager {
         } catch (error: any) {
             console.error('Debug - Token Price Error:', {
                 error: error.message,
-                url: `${DEX_CONFIG.jupiterApiUrl}/price?ids=${tokenAddress}`,
+                url: `${DEX_CONFIG.jupiterApiUrl}/price`,
                 status: error.status,
-                response: error.response
+                response: error.response,
+                requestBody: { ids: [tokenAddress] }
             });
             logger.logError('dex', 'Failed to get token price', error.message);
             throw error;
@@ -104,6 +112,9 @@ class DexManager {
     }
     
     async executeSwap(tokenAddress: string, amount: number): Promise<string> {
+        let quoteBody: any;
+        let swapBody: any;
+        
         try {
             logger.logInfo('dex', 'Executing swap', 
                 `Token: ${tokenAddress}, Amount: ${amount} SOL`
@@ -124,13 +135,14 @@ class DexManager {
 
             // Get quote from Jupiter
             const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/quote`;
-            const quoteBody = {
+            quoteBody = {
                 inputMint: 'So11111111111111111111111111111111111111112', // SOL
                 outputMint: tokenAddress,
                 amount: Math.floor(amount * 1e9).toString(), // Convert to lamports and ensure it's a string
                 slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000), // Convert to basis points
                 onlyDirectRoutes: false,
-                asLegacyTransaction: true
+                asLegacyTransaction: true,
+                platformFeeBps: 0
             };
 
             console.log('Debug - Quote Request:', {
@@ -156,11 +168,12 @@ class DexManager {
 
             // Get swap transaction
             const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap`;
-            const swapBody = {
+            swapBody = {
                 quoteResponse: quote,
                 userPublicKey: walletManager.getPublicKey().toString(),
                 wrapUnwrapSOL: true,
-                computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee
+                computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee,
+                asLegacyTransaction: true
             };
 
             console.log('Debug - Swap Request:', {
@@ -203,7 +216,11 @@ class DexManager {
                 amount,
                 status: error.status,
                 response: error.response,
-                logs: error.logs
+                logs: error.logs,
+                requestBody: {
+                    quote: quoteBody,
+                    swap: swapBody
+                }
             });
             const errorMessage = error.message || 'Unknown error';
             logger.logTransactionFailure('pending', tokenAddress, amount.toString(), errorMessage);
