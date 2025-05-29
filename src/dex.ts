@@ -32,10 +32,10 @@ class DexManager {
         
         if (!response.ok) {
             const errorText = await response.text();
-            logger.logError('dex', `API call failed: ${response.statusText}`, 
+            logger.logError('dex', `API call failed: ${response}`, 
                 `URL: ${url}\nStatus: ${response.status}\nResponse: ${errorText}`
             );
-            throw new Error(`API call failed: ${response.statusText} - ${errorText}`);
+            throw new Error(`API call failed: ${response} - ${errorText}`);
         }
         
         return response;
