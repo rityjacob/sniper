@@ -32,32 +32,10 @@ class DexManager {
         
         if (!response.ok) {
             const errorJson = await response.json();
-            console.error('Full Error Object:', {
-                status: response.status,
-                statusText: response.statusText,
-                headers: Object.fromEntries(response.headers.entries()),
-                url: response.url,
-                body: errorJson,
-                options: options
-            });
             logger.logError('dex', `API call failed: ${response.statusText}`, 
-                `URL: ${url}\nStatus: ${response.status}\nResponse: ${JSON.stringify(errorJson, null, 2)}\nFull Error: ${JSON.stringify({
-                    status: response.status,
-                    statusText: response.statusText,
-                    headers: Object.fromEntries(response.headers.entries()),
-                    url: response.url,
-                    body: errorJson,
-                    options: options
-                }, null, 2)}`
+                `URL: ${url}\nStatus: ${response.status}\nResponse: ${JSON.stringify(errorJson)}`
             );
-            throw new Error(`API call failed: ${JSON.stringify({
-                status: response.status,
-                statusText: response.statusText,
-                headers: Object.fromEntries(response.headers.entries()),
-                url: response.url,
-                body: errorJson,
-                options: options
-            }, null, 2)}`);
+            throw new Error(`API call failed: ${response.statusText} - ${JSON.stringify(errorJson)}`);
         }
         
         return response;
