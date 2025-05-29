@@ -44,7 +44,7 @@ class DexManager {
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
             const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/v6/price?ids=${tokenAddress}`
+                `${DEX_CONFIG.jupiterApiUrl}/price?ids=${tokenAddress}`
             );
             const data = await response.json();
             const price = data.data?.[tokenAddress]?.price || 0;
@@ -55,6 +55,12 @@ class DexManager {
             
             return price;
         } catch (error: any) {
+            console.error('Debug - Token Price Error:', {
+                error: error.message,
+                url: `${DEX_CONFIG.jupiterApiUrl}/price?ids=${tokenAddress}`,
+                status: error.status,
+                response: error.response
+            });
             logger.logError('dex', 'Failed to get token price', error.message);
             throw error;
         }
@@ -117,46 +123,64 @@ class DexManager {
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter
+            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/quote`;
+            const quoteBody = {
+                inputMint: 'So11111111111111111111111111111111111111112', // SOL
+                outputMint: tokenAddress,
+                amount: Math.floor(amount * 1e9).toString(), // Convert to lamports and ensure it's a string
+                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000), // Convert to basis points
+                onlyDirectRoutes: false,
+                asLegacyTransaction: true
+            };
+
+            console.log('Debug - Quote Request:', {
+                url: quoteUrl,
+                body: quoteBody
+            });
+
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/v6/quote`,
+                quoteUrl,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        inputMint: 'So11111111111111111111111111111111111111112', // SOL
-                        outputMint: tokenAddress,
-                        amount: Math.floor(amount * 1e9).toString(), // Convert to lamports and ensure it's a string
-                        slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000), // Convert to basis points
-                        onlyDirectRoutes: false,
-                        asLegacyTransaction: true
-                    })
+                    body: JSON.stringify(quoteBody)
                 }
             );
             
             const quote = await quoteResponse.json();
             
             if (!quote.outAmount || !quote.inAmount) {
+                console.error('Debug - Invalid Quote Response:', quote);
                 throw new Error('Invalid quote received from Jupiter');
             }
 
             // Get swap transaction
+            const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap`;
+            const swapBody = {
+                quoteResponse: quote,
+                userPublicKey: walletManager.getPublicKey().toString(),
+                wrapUnwrapSOL: true,
+                computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee
+            };
+
+            console.log('Debug - Swap Request:', {
+                url: swapUrl,
+                body: swapBody
+            });
+
             const swapResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/v6/swap`,
+                swapUrl,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        quoteResponse: quote,
-                        userPublicKey: walletManager.getPublicKey().toString(),
-                        wrapUnwrapSOL: true,
-                        computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee
-                    })
+                    body: JSON.stringify(swapBody)
                 }
             );
             
             const swapTransaction = await swapResponse.json();
             
             if (!swapTransaction.swapTransaction) {
+                console.error('Debug - Invalid Swap Response:', swapTransaction);
                 throw new Error('Invalid swap transaction received from Jupiter');
             }
 
@@ -173,6 +197,14 @@ class DexManager {
             logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
             return signature;
         } catch (error: any) {
+            console.error('Debug - Swap Error:', {
+                error: error.message,
+                tokenAddress,
+                amount,
+                status: error.status,
+                response: error.response,
+                logs: error.logs
+            });
             const errorMessage = error.message || 'Unknown error';
             logger.logTransactionFailure('pending', tokenAddress, amount.toString(), errorMessage);
             
@@ -222,7 +254,7 @@ class DexManager {
 
             // Get quote from Jupiter
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=${tokenAddress}&outputMint=So11111111111111111111111111111111111111112&amount=${tokenAmount}&slippageBps=${TRANSACTION_CONFIG.maxSlippage * 100}`
+                `${DEX_CONFIG.jupiterApiUrl}/quote?inputMint=${tokenAddress}&outputMint=So11111111111111111111111111111111111111112&amount=${tokenAmount}&slippageBps=${TRANSACTION_CONFIG.maxSlippage * 100}`
             );
             
             const quote = await quoteResponse.json();
@@ -235,7 +267,7 @@ class DexManager {
 
             // Get swap transaction
             const swapResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/v6/swap`,
+                `${DEX_CONFIG.jupiterApiUrl}/swap`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -308,7 +340,7 @@ class DexManager {
     }> {
         try {
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=${tokenAddress}&outputMint=So11111111111111111111111111111111111111112&amount=${tokenAmount}&slippageBps=${TRANSACTION_CONFIG.maxSlippage * 100}`
+                `${DEX_CONFIG.jupiterApiUrl}/quote?inputMint=${tokenAddress}&outputMint=So11111111111111111111111111111111111111112&amount=${tokenAmount}&slippageBps=${TRANSACTION_CONFIG.maxSlippage * 100}`
             );
             
             const quote = await quoteResponse.json();
