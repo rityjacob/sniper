@@ -43,11 +43,11 @@ interface SafetyConfig {
 
 export const TRANSACTION_CONFIG: TransactionConfig = {
     maxSlippage: 0.05,
-    priorityFee: 30000,
-    maxRetries: 3,
+    priorityFee: 10000000,
+    maxRetries: 1,
     timeout: 30000,
     minSolBalance: Number(process.env.MIN_SOL_BALANCE) || 0.0001,
-    maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 2,
+    maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 0.09,
     percentageOfTargetTrade: Number(process.env.PERCENTAGE_OF_TARGET_TRADE) || 0.05,
     maxBuyAmount: 2,
 };
