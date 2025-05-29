@@ -44,7 +44,7 @@ class DexManager {
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
             const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/price?ids=${tokenAddress}`
+                `${DEX_CONFIG.jupiterApiUrl}/v6/price?ids=${tokenAddress}`
             );
             const data = await response.json();
             const price = data.data?.[tokenAddress]?.price || 0;
@@ -118,7 +118,7 @@ class DexManager {
 
             // Get quote from Jupiter
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/quote`,
+                `${DEX_CONFIG.jupiterApiUrl}/v6/quote`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
