@@ -68,13 +68,10 @@ class DexManager {
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
             const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/price`,
+                `${DEX_CONFIG.jupiterApiUrl}/price?ids=${tokenAddress}`,
                 {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        ids: [tokenAddress]
-                    })
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
                 }
             );
             const data = await response.json();
@@ -153,28 +150,17 @@ class DexManager {
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter
-            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/quote`;
-            quoteBody = {
-                inputMint: 'So11111111111111111111111111111111111111112', // SOL
-                outputMint: tokenAddress,
-                amount: Math.floor(amount * 1e9).toString(), // Convert to lamports and ensure it's a string
-                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000), // Convert to basis points
-                onlyDirectRoutes: false,
-                asLegacyTransaction: true,
-                platformFeeBps: 0
-            };
-
+            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000)}&onlyDirectRoutes=false&asLegacyTransaction=true&platformFeeBps=0`;
+            
             console.log('Debug - Quote Request:', {
-                url: quoteUrl,
-                body: quoteBody
+                url: quoteUrl
             });
 
             const quoteResponse = await this.rateLimitedFetch(
                 quoteUrl,
                 {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(quoteBody)
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
                 }
             );
             
