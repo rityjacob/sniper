@@ -42,7 +42,7 @@ interface SafetyConfig {
 }
 
 export const TRANSACTION_CONFIG: TransactionConfig = {
-    maxSlippage: 0.05,
+    maxSlippage: 0.20,
     priorityFee: 10000000,
     maxRetries: 2,
     timeout: 30000,
