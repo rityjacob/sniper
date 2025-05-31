@@ -11,6 +11,7 @@ export const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY || '';
 interface TransactionConfig {
     maxSlippage: number;
     priorityFee: number;
+    tip: number;
     maxRetries: number;
     timeout: number;
     minSolBalance: number;
@@ -44,6 +45,7 @@ interface SafetyConfig {
 export const TRANSACTION_CONFIG: TransactionConfig = {
     maxSlippage: 0.20,
     priorityFee: 10000000,
+    tip: 5000000,
     maxRetries: 2,
     timeout: 30000,
     minSolBalance: Number(process.env.MIN_SOL_BALANCE) || 0.0001,

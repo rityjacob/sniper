@@ -68,7 +68,7 @@ class DexManager {
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
             const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/price?ids=${tokenAddress}`,
+                `${DEX_CONFIG.jupiterApiUrl}/v2/price?ids=${tokenAddress}`,
                 {
                     method: 'GET',
                     headers: { 'Content-Type': 'application/json' }
@@ -112,18 +112,14 @@ class DexManager {
     async checkLiquidity(tokenAddress: string): Promise<boolean> {
         try {
             const liquidity = await this.getTokenLiquidity(tokenAddress);
-            const hasLiquidity = liquidity > DEX_CONFIG.minLiquidity;
-            
-            if (!hasLiquidity) {
-                logger.logWarning('dex', 'Insufficient liquidity', 
-                    `Token: ${tokenAddress}, Liquidity: ${liquidity}, Min Required: ${DEX_CONFIG.minLiquidity}`
-                );
-            }
-            
-            return hasLiquidity;
+            // Log liquidity for debugging but don't restrict based on it
+            logger.logInfo('dex', 'Token liquidity', 
+                `Token: ${tokenAddress}, Liquidity: ${liquidity} SOL`
+            );
+            return true; // Always return true regardless of liquidity
         } catch (error: any) {
             logger.logError('dex', 'Error checking liquidity', error.message);
-            return false;
+            return true; // Return true even on error to not block trades
         }
     }
     
@@ -177,13 +173,18 @@ class DexManager {
                 quoteResponse: quote,
                 userPublicKey: walletManager.getPublicKey().toString(),
                 wrapUnwrapSOL: true,
-                computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee,
+                computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee + TRANSACTION_CONFIG.tip,
                 asLegacyTransaction: true
             };
 
             console.log('Debug - Swap Request:', {
                 url: swapUrl,
-                body: swapBody
+                body: swapBody,
+                fees: {
+                    priorityFee: TRANSACTION_CONFIG.priorityFee,
+                    tip: TRANSACTION_CONFIG.tip,
+                    total: TRANSACTION_CONFIG.priorityFee + TRANSACTION_CONFIG.tip
+                }
             });
 
             const swapResponse = await this.rateLimitedFetch(
