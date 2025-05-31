@@ -49,13 +49,13 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
     priorityFee: 1000000,
     tip: 500000,
     maxRetries: 2,
-    timeout: 30000,
+    timeout: 10000,
     minSolBalance: Number(process.env.MIN_SOL_BALANCE) || 0.0001,
     maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 0.15,
     percentageOfTargetTrade: Number(process.env.PERCENTAGE_OF_TARGET_TRADE) || 0.05,
     maxBuyAmount: 2,
     computeUnitLimit: 1400000,
-    computeUnitPrice: 500,
+    computeUnitPrice: 5000,
 };
 
 export const DEX_CONFIG: DexConfig = {

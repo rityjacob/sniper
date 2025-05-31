@@ -149,7 +149,9 @@ class DexManager {
             const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000)}&onlyDirectRoutes=false&asLegacyTransaction=true&platformFeeBps=0`;
             
             console.log('Debug - Quote Request:', {
-                url: quoteUrl
+                url: quoteUrl,
+                amount,
+                slippage: TRANSACTION_CONFIG.maxSlippage
             });
 
             const quoteResponse = await this.rateLimitedFetch(
@@ -167,7 +169,7 @@ class DexManager {
                 throw new Error('Invalid quote received from Jupiter');
             }
 
-            // Get swap transaction
+            // Get swap transaction with optimized settings
             const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap`;
             swapBody = {
                 quoteResponse: quote,
@@ -175,7 +177,11 @@ class DexManager {
                 wrapUnwrapSOL: true,
                 computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
                 computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
-                asLegacyTransaction: true
+                asLegacyTransaction: true,
+                useSharedAccounts: true,  // Enable shared accounts for faster execution
+                useTokenLedger: true,     // Enable token ledger for better tracking
+                destinationTokenAccount: null,  // Let Jupiter handle account creation
+                dynamicComputeUnitLimit: true  // Allow dynamic compute unit adjustment
             };
 
             console.log('Debug - Swap Request:', {
@@ -185,8 +191,7 @@ class DexManager {
                     priorityFee: TRANSACTION_CONFIG.priorityFee,
                     tip: TRANSACTION_CONFIG.tip,
                     computeUnitPrice: TRANSACTION_CONFIG.computeUnitPrice,
-                    computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
-                    total: TRANSACTION_CONFIG.priorityFee + TRANSACTION_CONFIG.tip
+                    computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit
                 }
             });
 
@@ -208,16 +213,30 @@ class DexManager {
 
             logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
             
-            // Deserialize the versioned transaction
+            // Deserialize and execute the transaction
             const transaction = VersionedTransaction.deserialize(
                 Buffer.from(swapTransaction.swapTransaction, 'base64')
             );
             
-            // Execute the swap
-            const signature = await walletManager.signAndSendTransaction(transaction);
+            // Execute the swap with retry logic
+            let retries = 0;
+            while (retries < TRANSACTION_CONFIG.maxRetries) {
+                try {
+                    const signature = await walletManager.signAndSendTransaction(transaction);
+                    logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
+                    return signature;
+                } catch (error: any) {
+                    if (error.message.includes('0x1771') && retries < TRANSACTION_CONFIG.maxRetries - 1) {
+                        // If slippage error, get a new quote and try again
+                        retries++;
+                        await new Promise(resolve => setTimeout(resolve, 100)); // Small delay before retry
+                        continue;
+                    }
+                    throw error;
+                }
+            }
             
-            logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
-            return signature;
+            throw new Error('Max retries exceeded for swap execution');
         } catch (error: any) {
             console.error('Debug - Swap Error:', {
                 error: error.message,
@@ -233,14 +252,6 @@ class DexManager {
             });
             const errorMessage = error.message || 'Unknown error';
             logger.logTransactionFailure('pending', tokenAddress, amount.toString(), errorMessage);
-            
-            // Check if it's a simulation error and extract more details
-            if (error.logs) {
-                logger.logError('dex', 'Transaction simulation failed', 
-                    `Logs: ${JSON.stringify(error.logs, null, 2)}`
-                );
-            }
-            
             throw error;
         }
     }
