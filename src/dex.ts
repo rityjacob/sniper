@@ -68,7 +68,7 @@ class DexManager {
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
             const response = await this.rateLimitedFetch(
-                `https://lite-api.jup.ag/price/v2/price?ids=${tokenAddress}`,
+                `https://lite-api.jup.ag/price/v2?ids=${tokenAddress}`,
                 {
                     method: 'GET',
                     headers: { 'Content-Type': 'application/json' }
