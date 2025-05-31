@@ -146,7 +146,7 @@ class DexManager {
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter
-            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000)}&onlyDirectRoutes=false&asLegacyTransaction=true&platformFeeBps=0`;
+            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000)}&onlyDirectRoutes=false&asLegacyTransaction=true&platformFeeBps=0`;
             
             console.log('Debug - Quote Request:', {
                 url: quoteUrl
