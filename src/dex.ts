@@ -173,7 +173,8 @@ class DexManager {
                 quoteResponse: quote,
                 userPublicKey: walletManager.getPublicKey().toString(),
                 wrapUnwrapSOL: true,
-                computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee + TRANSACTION_CONFIG.tip,
+                computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
+                computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
                 asLegacyTransaction: true
             };
 
@@ -183,6 +184,8 @@ class DexManager {
                 fees: {
                     priorityFee: TRANSACTION_CONFIG.priorityFee,
                     tip: TRANSACTION_CONFIG.tip,
+                    computeUnitPrice: TRANSACTION_CONFIG.computeUnitPrice,
+                    computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
                     total: TRANSACTION_CONFIG.priorityFee + TRANSACTION_CONFIG.tip
                 }
             });
@@ -298,7 +301,9 @@ class DexManager {
                         quoteResponse: quote,
                         userPublicKey: walletManager.getPublicKey().toString(),
                         wrapUnwrapSOL: true,
-                        computeUnitPriceMicroLamports: TRANSACTION_CONFIG.priorityFee
+                        computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
+                        computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
+                        asLegacyTransaction: true
                     })
                 }
             );
