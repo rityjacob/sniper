@@ -185,7 +185,8 @@ class DexManager {
                 useTokenLedger: true,
                 destinationTokenAccount: null,
                 dynamicComputeUnitLimit: true,
-                asLegacyTransaction: false
+                asLegacyTransaction: false,
+                useInstructionsMode: true
             };
 
             console.log('Debug - Swap Request:', {
