@@ -146,19 +146,23 @@ class DexManager {
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter
-            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000)}&onlyDirectRoutes=false&asLegacyTransaction=true&platformFeeBps=0`;
+            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000)}&onlyDirectRoutes=false&platformFeeBps=0&restrictIntermediateTokens=true&useTokenLedger=true`;
             
             console.log('Debug - Quote Request:', {
                 url: quoteUrl,
                 amount,
-                slippage: TRANSACTION_CONFIG.maxSlippage
+                slippage: TRANSACTION_CONFIG.maxSlippage,
+                tokenAddress
             });
 
             const quoteResponse = await this.rateLimitedFetch(
                 quoteUrl,
                 {
                     method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    }
                 }
             );
             
@@ -170,18 +174,18 @@ class DexManager {
             }
 
             // Get swap transaction with optimized settings
-            const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap`;
+            const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/v6/swap`;
             swapBody = {
                 quoteResponse: quote,
                 userPublicKey: walletManager.getPublicKey().toString(),
                 wrapUnwrapSOL: true,
                 computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
                 computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
-                asLegacyTransaction: true,
-                useSharedAccounts: true,  // Enable shared accounts for faster execution
-                useTokenLedger: true,     // Enable token ledger for better tracking
-                destinationTokenAccount: null,  // Let Jupiter handle account creation
-                dynamicComputeUnitLimit: true  // Allow dynamic compute unit adjustment
+                useSharedAccounts: true,
+                useTokenLedger: true,
+                destinationTokenAccount: null,
+                dynamicComputeUnitLimit: true,
+                asLegacyTransaction: false  // Changed to false to use instructions mode
             };
 
             console.log('Debug - Swap Request:', {
@@ -199,7 +203,10 @@ class DexManager {
                 swapUrl,
                 {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
                     body: JSON.stringify(swapBody)
                 }
             );

@@ -45,7 +45,7 @@ interface SafetyConfig {
 }
 
 export const TRANSACTION_CONFIG: TransactionConfig = {
-    maxSlippage: 0.20,
+    maxSlippage: 0.25,
     priorityFee: 1000000,
     tip: 500000,
     maxRetries: 2,
@@ -59,7 +59,7 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
 };
 
 export const DEX_CONFIG: DexConfig = {
-    jupiterApiUrl: 'https://quote-api.jup.ag',
+    jupiterApiUrl: 'https://quote-api.jup.ag/v6',
     minLiquidity: 2000,
     maxPriceImpact: 2,
     trustedDexes: ['RAYDIUM','ORCA','JUPITER']
