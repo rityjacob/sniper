@@ -146,7 +146,7 @@ class DexManager {
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter
-            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000)}&onlyDirectRoutes=false&platformFeeBps=0&restrictIntermediateTokens=true&useTokenLedger=true`;
+            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000)}&onlyDirectRoutes=false&platformFeeBps=0&restrictIntermediateTokens=true&useTokenLedger=true`;
             
             console.log('Debug - Quote Request:', {
                 url: quoteUrl,
@@ -174,7 +174,7 @@ class DexManager {
             }
 
             // Get swap transaction with optimized settings
-            const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/v6/swap`;
+            const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap`;
             swapBody = {
                 quoteResponse: quote,
                 userPublicKey: walletManager.getPublicKey().toString(),
