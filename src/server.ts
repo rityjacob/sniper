@@ -127,27 +127,38 @@ async function handleSwap(data: any) {
 }
 
 // Periodically check for profit targets and auto-sell
+const PRICE_CHECK_INTERVAL = 15 * 60 * 1000; // Check every 5 minutes instead of every minute
+const lastPriceCheck: Record<string, number> = {};
+
 setInterval(async () => {
-  for (const tokenMint in buyPrices) {
-    const { price: buyPrice, amount } = buyPrices[tokenMint];
-    let currentPrice = 0;
-    try {
-      currentPrice = await dexManager.getTokenPrice(tokenMint);
-    } catch (err) {
-      logger.logError('system', '❌ Error fetching token price for sell check', err instanceof Error ? err.message : String(err));
-      continue;
+    const now = Date.now();
+    for (const tokenMint in buyPrices) {
+        // Only check price if 5 minutes have passed since last check
+        if (lastPriceCheck[tokenMint] && now - lastPriceCheck[tokenMint] < PRICE_CHECK_INTERVAL) {
+            continue;
+        }
+        
+        const { price: buyPrice, amount } = buyPrices[tokenMint];
+        let currentPrice = 0;
+        try {
+            currentPrice = await dexManager.getTokenPrice(tokenMint);
+            lastPriceCheck[tokenMint] = now;
+        } catch (err) {
+            logger.logError('system', '❌ Error fetching token price for sell check', err instanceof Error ? err.message : String(err));
+            continue;
+        }
+        if (currentPrice >= buyPrice * 1.5) {
+            try {
+                await dexManager.sellToken(tokenMint, amount);
+                logger.logInfo('system', `🎉 Sold ${tokenMint} for 150% profit! (Buy: ${buyPrice}, Sell: ${currentPrice})`);
+                delete buyPrices[tokenMint];
+                delete lastPriceCheck[tokenMint];
+            } catch (err) {
+                logger.logError('system', '❌ Error executing auto-sell', err instanceof Error ? err.message : String(err));
+            }
+        }
     }
-    if (currentPrice >= buyPrice * 1.5) {
-      try {
-        await dexManager.sellToken(tokenMint, amount);
-        logger.logInfo('system', `🎉 Sold ${tokenMint} for 150% profit! (Buy: ${buyPrice}, Sell: ${currentPrice})`);
-        delete buyPrices[tokenMint];
-      } catch (err) {
-        logger.logError('system', '❌ Error executing auto-sell', err instanceof Error ? err.message : String(err));
-      }
-    }
-  }
-}, 60 * 1000); // Check every minute
+}, PRICE_CHECK_INTERVAL);
 
 // Health check endpoint with more detailed response
 app.get('/health', (_req: Request, res: Response) => {
