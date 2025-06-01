@@ -146,12 +146,11 @@ class DexManager {
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter
-            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 10000)}&onlyDirectRoutes=false&platformFeeBps=0&restrictIntermediateTokens=true&useTokenLedger=true`;
+            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}`;
             
             console.log('Debug - Quote Request:', {
                 url: quoteUrl,
                 amount,
-                slippage: TRANSACTION_CONFIG.maxSlippage,
                 tokenAddress
             });
 
@@ -160,7 +159,6 @@ class DexManager {
                 {
                     method: 'GET',
                     headers: { 
-                        'Content-Type': 'application/json',
                         'Accept': 'application/json'
                     }
                 }
@@ -176,28 +174,20 @@ class DexManager {
             // Get swap transaction with optimized settings
             const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/swap`;
             swapBody = {
-                quoteResponse: quote,
                 userPublicKey: walletManager.getPublicKey().toString(),
-                wrapUnwrapSOL: true,
-                computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
-                computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
-                useSharedAccounts: true,
-                useTokenLedger: true,
-                destinationTokenAccount: null,
-                dynamicComputeUnitLimit: true,
-                asLegacyTransaction: false,
-                useInstructionsMode: true
+                quoteResponse: quote,
+                prioritizationFeeLamports: {
+                    priorityLevelWithMaxLamports: {
+                        maxLamports: TRANSACTION_CONFIG.priorityFee,
+                        priorityLevel: "veryHigh"
+                    }
+                },
+                dynamicComputeUnitLimit: true
             };
 
             console.log('Debug - Swap Request:', {
                 url: swapUrl,
-                body: swapBody,
-                fees: {
-                    priorityFee: TRANSACTION_CONFIG.priorityFee,
-                    tip: TRANSACTION_CONFIG.tip,
-                    computeUnitPrice: TRANSACTION_CONFIG.computeUnitPrice,
-                    computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit
-                }
+                body: swapBody
             });
 
             const swapResponse = await this.rateLimitedFetch(
