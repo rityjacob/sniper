@@ -19,6 +19,7 @@ import {
     TOKEN_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID
 } from '@solana/spl-token';
+import { logger } from './utils/logger';
 
 export class WalletManager {
     private connection: Connection;
@@ -63,50 +64,41 @@ export class WalletManager {
         return balance >= TRANSACTION_CONFIG.minSolBalance;
     }
 
-    async signAndSendTransaction(transaction: Transaction | VersionedTransaction): Promise<string> {
+    async signAndSendTransaction(
+        transaction: Transaction | VersionedTransaction,
+        options?: {
+            skipPreflight?: boolean;
+            maxRetries?: number;
+            preflightCommitment?: 'processed' | 'confirmed' | 'finalized';
+        }
+    ): Promise<string> {
         try {
-            // Get latest blockhash
-            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
-
-            // Handle different transaction types
+            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
+            const wallet = this.getCurrentWallet();
+            
+            // Sign the transaction
             if (transaction instanceof VersionedTransaction) {
-                // For versioned transactions, we need to sign the message
-                transaction.sign([this.wallet]);
+                transaction.sign([wallet]);
             } else {
-                // For legacy transactions, set blockhash and sign
-                transaction.recentBlockhash = blockhash;
-                transaction.sign(this.wallet);
+                transaction.sign(wallet);
             }
-
-            // Add priority fee
-            const priorityFee = TRANSACTION_CONFIG.priorityFee;
-            console.log(`💰 Adding priority fee: ${priorityFee} lamports`);
-
-            // Send transaction with priority fee
-            const signature = await this.connection.sendRawTransaction(
+            
+            // Send the transaction
+            const signature = await connection.sendRawTransaction(
                 transaction.serialize(),
-                {
-                    skipPreflight: false,
-                    maxRetries: TRANSACTION_CONFIG.maxRetries,
-                    preflightCommitment: 'confirmed'
-                }
+                options
             );
-
-            // Wait for confirmation
-            const confirmation = await this.connection.confirmTransaction({
+            
+            // Wait for confirmation with the specified commitment
+            await connection.confirmTransaction({
                 signature,
-                blockhash,
-                lastValidBlockHeight
-            }, 'confirmed');
-
-            if (confirmation.value.err) {
-                throw new Error('Transaction confirmation failed');
-            }
-
-            console.log(`✅ Transaction confirmed: ${signature}`);
+                blockhash: transaction instanceof Transaction ? transaction.recentBlockhash! : transaction.message.recentBlockhash,
+                lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight
+            }, options?.preflightCommitment || 'confirmed');
+            
             return signature;
-        } catch (error) {
-            console.error("❌ Transaction failed:", error);
+        } catch (error: any) {
+            logger.logError('wallet', 'Transaction failed', error.message);
             throw error;
         }
     }

@@ -123,7 +123,7 @@ class DexManager {
         }
     }
     
-    async executeSwap(tokenAddress: string, amount: number): Promise<string> {
+    async executeSwap(tokenAddress: string, amount: number, originalPrice?: number): Promise<string> {
         let quoteBody: any;
         let swapBody: any;
         
@@ -142,16 +142,33 @@ class DexManager {
                 throw new Error(error);
             }
 
+            // Check price movement if original price is provided
+            if (originalPrice) {
+                const currentPrice = await this.getTokenPrice(tokenAddress);
+                const priceChange = ((currentPrice - originalPrice) / originalPrice) * 100;
+                
+                logger.logInfo('dex', 'Price movement check', 
+                    `Original: ${originalPrice}, Current: ${currentPrice}, Change: ${priceChange.toFixed(2)}%`
+                );
+
+                if (priceChange >= 100) {
+                    const error = `Price has moved too much (${priceChange.toFixed(2)}%). Skipping trade.`;
+                    logger.logWarning('dex', 'Trade skipped due to price movement', error);
+                    throw new Error(error);
+                }
+            }
+
             const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
             const wallet = walletManager.getCurrentWallet();
 
-            // Get quote from Jupiter
-            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}`;
+            // Get quote from Jupiter with optimized settings for speed
+            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&onlyDirectRoutes=true&asLegacyTransaction=true`;
             
             console.log('Debug - Quote Request:', {
                 url: quoteUrl,
                 amount,
-                tokenAddress
+                tokenAddress,
+                originalPrice
             });
 
             const quoteResponse = await this.rateLimitedFetch(
@@ -171,18 +188,24 @@ class DexManager {
                 throw new Error('Invalid quote received from Jupiter');
             }
 
-            // Get swap transaction with optimized settings
+            // Get swap transaction with optimized settings for speed
             const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/swap`;
             swapBody = {
                 userPublicKey: walletManager.getPublicKey().toString(),
                 quoteResponse: quote,
+                // Add high priority fee to get transaction processed faster
                 prioritizationFeeLamports: {
                     priorityLevelWithMaxLamports: {
                         maxLamports: TRANSACTION_CONFIG.priorityFee,
                         priorityLevel: "veryHigh"
                     }
                 },
-                dynamicComputeUnitLimit: true
+                // Optimize compute unit settings
+                dynamicComputeUnitLimit: true,
+                // Use legacy transaction for faster processing
+                asLegacyTransaction: true,
+                // Skip token account creation if possible
+                skipUserAccountsCheck: true
             };
 
             console.log('Debug - Swap Request:', {
@@ -220,14 +243,18 @@ class DexManager {
             let retries = 0;
             while (retries < TRANSACTION_CONFIG.maxRetries) {
                 try {
-                    const signature = await walletManager.signAndSendTransaction(transaction);
+                    // Send transaction with high priority
+                    const signature = await walletManager.signAndSendTransaction(transaction, {
+                        skipPreflight: true, // Skip preflight for faster execution
+                        maxRetries: 3, // Increase retries for transaction
+                        preflightCommitment: 'processed' // Use processed commitment for faster confirmation
+                    });
                     logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
                     return signature;
                 } catch (error: any) {
                     if (error.message.includes('0x1771') && retries < TRANSACTION_CONFIG.maxRetries - 1) {
-                        // If slippage error, get a new quote and try again
                         retries++;
-                        await new Promise(resolve => setTimeout(resolve, 100)); // Small delay before retry
+                        await new Promise(resolve => setTimeout(resolve, 50)); // Reduced delay for faster retry
                         continue;
                     }
                     throw error;
