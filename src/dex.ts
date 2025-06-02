@@ -177,7 +177,8 @@ class DexManager {
                     method: 'GET',
                     headers: { 
                         'Accept': 'application/json'
-                    }
+                    },
+                    redirect: 'follow' // Add redirect following
                 }
             );
             
