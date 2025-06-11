@@ -5,6 +5,7 @@ import fetch from 'node-fetch';
 import { dexManager } from './dex';
 import { logger } from './utils/logger';
 import { buyPrices } from './profitTracker';
+import { transactionManager } from './transaction';
 
 dotenv.config();
 
@@ -111,12 +112,26 @@ async function handleSwap(data: any) {
 
     // Trigger the bot's buy logic
     try {
-      await dexManager.executeSwap(tokenMint, amountInSol);
-      logger.logInfo('system', `🚀 Copy trade triggered: Bought ${tokenMint} for ${amountInSol} SOL`);
-      // Track the buy price and amount
-      if (currentPrice > 0) {
-        buyPrices[tokenMint] = { price: currentPrice, amount: amountInSol };
-        logger.logInfo('system', `💾 Tracked buy: ${tokenMint} at ${currentPrice} SOL`);
+      // Construct a transaction object for safety checks and trade sizing
+      const tx = {
+        signature: data.signature || '',
+        timestamp: data.timestamp || Date.now(),
+        tokenAddress: tokenMint,
+        amount: amountInSol.toString(),
+        type: 'buy' as const
+      };
+      // Run through transaction manager (enforces all limits)
+      const isSafe = await transactionManager.processTransaction(tx);
+      if (isSafe) {
+        await dexManager.executeSwap(tokenMint, Number(tx.amount));
+        logger.logInfo('system', `🚀 Copy trade triggered: Bought ${tokenMint} for ${tx.amount} SOL`);
+        // Track the buy price and amount
+        if (currentPrice > 0) {
+          buyPrices[tokenMint] = { price: currentPrice, amount: Number(tx.amount) };
+          logger.logInfo('system', `💾 Tracked buy: ${tokenMint} at ${currentPrice} SOL`);
+        }
+      } else {
+        logger.logWarning('system', 'Trade did not pass safety checks, not executing swap');
       }
     } catch (err) {
       logger.logError('system', '❌ Error executing copy trade', err instanceof Error ? err.message : String(err));
