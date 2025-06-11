@@ -93,11 +93,11 @@ async function handleSwap(data: any) {
 
     // Get the SOL amount from native transfers
     const nativeTransfers = data.nativeTransfers || [];
-    const solTransfer = nativeTransfers.find((transfer: any) => 
-      transfer.fromUserAccount === targetWallet
-    );
-
-    const amountInSol = solTransfer ? solTransfer.amount / 1e9 : 0;
+    // Sum all SOL sent from the target wallet
+    const totalSolSpent = nativeTransfers
+      .filter((transfer: any) => transfer.fromUserAccount === targetWallet)
+      .reduce((sum: number, transfer: any) => sum + transfer.amount, 0);
+    const amountInSol = totalSolSpent / 1e9;
 
     logger.logInfo('system', `🔄 Swap detected. Token: ${tokenMint}, Amount: ${amountInTokens} tokens (${amountInSol} SOL)`);
 

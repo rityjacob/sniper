@@ -51,7 +51,7 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
     maxRetries: 2,
     timeout: 10000,
     minSolBalance: Number(process.env.MIN_SOL_BALANCE) || 0.0001,
-    maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 0.15,
+    maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 0.10,
     percentageOfTargetTrade: Number(process.env.PERCENTAGE_OF_TARGET_TRADE) || 0.05,
     maxBuyAmount: 2,
     computeUnitLimit: 1400000,
