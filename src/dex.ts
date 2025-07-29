@@ -17,7 +17,7 @@ interface TokenInfo {
 
 class DexManager {
     private lastApiCall: number = 0;
-    private readonly minApiCallInterval = 100; // 100ms between API calls
+    private readonly minApiCallInterval = 10; // Reduced from 100ms to 10ms for faster API calls
 
     private async rateLimitedFetch(url: string, options?: any): Promise<Response> {
         const now = Date.now();
@@ -142,27 +142,27 @@ class DexManager {
                 throw new Error(error);
             }
 
-            // Check price movement if original price is provided
-            if (originalPrice) {
-                const currentPrice = await this.getTokenPrice(tokenAddress);
-                const priceChange = ((currentPrice - originalPrice) / originalPrice) * 100;
-                
-                logger.logInfo('dex', 'Price movement check', 
-                    `Original: ${originalPrice}, Current: ${currentPrice}, Change: ${priceChange.toFixed(2)}%`
-                );
+            // Skip price movement check for faster execution
+            // if (originalPrice) {
+            //     const currentPrice = await this.getTokenPrice(tokenAddress);
+            //     const priceChange = ((currentPrice - originalPrice) / originalPrice) * 100;
+            //     
+            //     logger.logInfo('dex', 'Price movement check', 
+            //         `Original: ${originalPrice}, Current: ${currentPrice}, Change: ${priceChange.toFixed(2)}%`
+            //     );
 
-                if (priceChange >= 100) {
-                    const error = `Price has moved too much (${priceChange.toFixed(2)}%). Skipping trade.`;
-                    logger.logWarning('dex', 'Trade skipped due to price movement', error);
-                    throw new Error(error);
-                }
-            }
+            //     if (priceChange >= 100) {
+            //         const error = `Price has moved too much (${priceChange.toFixed(2)}%). Skipping trade.`;
+            //         logger.logWarning('dex', 'Trade skipped due to price movement', error);
+            //         throw new Error(error);
+            //     }
+            // }
 
             const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter with optimized settings for speed
-            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&onlyDirectRoutes=true&asLegacyTransaction=true`;
+            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&onlyDirectRoutes=true&asLegacyTransaction=true&maxAccounts=64`;
             
             console.log('Debug - Quote Request:', {
                 url: quoteUrl,
@@ -206,7 +206,9 @@ class DexManager {
                 // Use legacy transaction for faster processing
                 asLegacyTransaction: true,
                 // Skip token account creation if possible
-                skipUserAccountsCheck: true
+                skipUserAccountsCheck: true,
+                // Add compute unit price for faster processing
+                computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice
             };
 
             console.log('Debug - Swap Request:', {
@@ -247,7 +249,7 @@ class DexManager {
                     // Send transaction with high priority
                     const signature = await walletManager.signAndSendTransaction(transaction, {
                         skipPreflight: true, // Skip preflight for faster execution
-                        maxRetries: 3, // Increase retries for transaction
+                        maxRetries: 1, // Reduced retries for faster execution
                         preflightCommitment: 'processed' // Use processed commitment for faster confirmation
                     });
                     logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
@@ -255,7 +257,7 @@ class DexManager {
                 } catch (error: any) {
                     if (error.message.includes('0x1771') && retries < TRANSACTION_CONFIG.maxRetries - 1) {
                         retries++;
-                        await new Promise(resolve => setTimeout(resolve, 50)); // Reduced delay for faster retry
+                        await new Promise(resolve => setTimeout(resolve, 10)); // Reduced delay from 50ms to 10ms for faster retry
                         continue;
                     }
                     throw error;

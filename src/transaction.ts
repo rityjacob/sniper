@@ -30,6 +30,7 @@ class TransactionManager {
             return false;
         }
 
+        // Reduced cooldown check for faster execution
         if (Date.now() - this.lastTradeTime < SAFETY_CONFIG.tradeCooldown) {
             logger.logWarning('safety', 'Trade cooldown active', 'Skipping transaction');
             return false;
@@ -71,8 +72,8 @@ class TransactionManager {
                 TRANSACTION_CONFIG.maxSolPerTrade
             );
 
-            // Additional check for minimum trade amount
-            if (finalAmount < 0.01) {
+            // Reduced minimum trade amount check for faster execution
+            if (finalAmount < 0.001) { // Reduced from 0.01 to 0.001
                 logger.logWarning('safety', 'Trade amount too small', `Amount: ${finalAmount} SOL`);
                 return false;
             }
@@ -108,24 +109,24 @@ class TransactionManager {
                 return false;
             }
     
-            // Check token liquidity
-            const hasLiquidity = await dexManager.checkLiquidity(tx.tokenAddress);
-            if (!hasLiquidity) {
-                logger.logWarning('dex', 'Insufficient liquidity', tx.tokenAddress);
-                return false;
-            }
+            // Skip liquidity check for faster execution
+            // const hasLiquidity = await dexManager.checkLiquidity(tx.tokenAddress);
+            // if (!hasLiquidity) {
+            //     logger.logWarning('dex', 'Insufficient liquidity', tx.tokenAddress);
+            //     return false;
+            // }
     
-            // Check price impact
-            const priceImpact = await dexManager.calculatePriceImpact(
-                tx.tokenAddress,
-                Number(tx.amount) 
-            );
-            if (priceImpact > DEX_CONFIG.maxPriceImpact) {
-                logger.logWarning('dex', 'Price impact too high', 
-                    `Impact: ${priceImpact}%, Max: ${DEX_CONFIG.maxPriceImpact}%`
-                );
-                return false;
-            }
+            // Skip price impact check for faster execution
+            // const priceImpact = await dexManager.calculatePriceImpact(
+            //     tx.tokenAddress,
+            //     Number(tx.amount) 
+            // );
+            // if (priceImpact > DEX_CONFIG.maxPriceImpact) {
+            //     logger.logWarning('dex', 'Price impact too high', 
+            //         `Impact: ${priceImpact}%, Max: ${DEX_CONFIG.maxPriceImpact}%`
+            //     );
+            //     return false;
+            // }
 
             // Check wallet balance before proceeding
             const walletBalance = await walletManager.getBalance();

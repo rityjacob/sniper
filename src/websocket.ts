@@ -37,7 +37,7 @@ class WebSocketManager extends EventEmitter {
                     TARGET_WALLET_ADDRESS,
                     {
                         encoding: "jsonParsed",
-                        commitment: "confirmed"
+                        commitment: "processed" // Changed from "confirmed" to "processed" for faster detection
                     }
                 ]
             };

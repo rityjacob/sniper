@@ -7,7 +7,9 @@
     "test": "jest",
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "tsc -w & node dist/main.js"
+    "dev": "tsc -w & node dist/main.js",
+    "fast-sniper": "tsc && node dist/scripts/fast-sniper.js",
+    "test-speed": "tsc && node dist/scripts/test-speed.js"
   },
   "repository": {
     "type": "git",
