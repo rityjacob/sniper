@@ -71,36 +71,61 @@ async function handleSwap(data: any) {
     // Log all token transfers for debugging
     logger.logInfo('system', 'Token transfers', JSON.stringify(tokenTransfers, null, 2));
 
-    // Find the token being bought (token that was transferred to the target wallet)
+    // Find the token being traded (token that was transferred FROM the target wallet)
+    const sellTransfer = tokenTransfers.find((transfer: any) => {
+      const isTargetWalletSelling = 
+        transfer.fromUserAccount === targetWallet ||
+        transfer.fromTokenAccount === targetWallet;
+      
+      if (isTargetWalletSelling) {
+        logger.logInfo('system', 'Found target wallet selling transfer', JSON.stringify(transfer, null, 2));
+      }
+      
+      return isTargetWalletSelling;
+    });
+
+    // Find the token being bought (token that was transferred TO the target wallet)
     const buyTransfer = tokenTransfers.find((transfer: any) => {
-      const isTargetWallet = 
+      const isTargetWalletBuying = 
         transfer.toUserAccount === targetWallet ||
         transfer.toTokenAccount === targetWallet;
       
-      if (isTargetWallet) {
-        logger.logInfo('system', 'Found matching transfer', JSON.stringify(transfer, null, 2));
+      if (isTargetWalletBuying) {
+        logger.logInfo('system', 'Found target wallet buying transfer', JSON.stringify(transfer, null, 2));
       }
       
-      return isTargetWallet;
+      return isTargetWalletBuying;
     });
 
-    if (!buyTransfer) {
-      logger.logWarning('system', 'No buy transfer found in swap data');
+    // Get the SOL amount from native transfers
+    const nativeTransfers = data.nativeTransfers || [];
+    const totalSolSpent = nativeTransfers
+      .filter((transfer: any) => transfer.fromUserAccount === targetWallet)
+      .reduce((sum: number, transfer: any) => sum + transfer.amount, 0);
+    const totalSolReceived = nativeTransfers
+      .filter((transfer: any) => transfer.toUserAccount === targetWallet)
+      .reduce((sum: number, transfer: any) => sum + transfer.amount, 0);
+
+    // Determine if this is a buy or sell
+    const isTargetWalletBuying = totalSolSpent > 0 && buyTransfer;
+    const isTargetWalletSelling = totalSolReceived > 0 && sellTransfer;
+
+    if (isTargetWalletSelling) {
+      logger.logInfo('system', `🔄 Target wallet SOLD: ${sellTransfer.mint}, Amount: ${sellTransfer.tokenAmount} tokens, Received: ${totalSolReceived / 1e9} SOL`);
+      logger.logInfo('system', 'Target wallet sold tokens, skipping copy trade (we only copy buys)');
+      return;
+    }
+
+    if (!isTargetWalletBuying) {
+      logger.logWarning('system', 'No buy transaction detected from target wallet');
       return;
     }
 
     const tokenMint = buyTransfer.mint;
     const amountInTokens = buyTransfer.tokenAmount;
-
-    // Get the SOL amount from native transfers
-    const nativeTransfers = data.nativeTransfers || [];
-    // Sum all SOL sent from the target wallet
-    const totalSolSpent = nativeTransfers
-      .filter((transfer: any) => transfer.fromUserAccount === targetWallet)
-      .reduce((sum: number, transfer: any) => sum + transfer.amount, 0);
     const amountInSol = totalSolSpent / 1e9;
 
-    logger.logInfo('system', `🔄 Swap detected. Token: ${tokenMint}, Amount: ${amountInTokens} tokens (${amountInSol} SOL)`);
+    logger.logInfo('system', `🔄 Target wallet BOUGHT: ${tokenMint}, Amount: ${amountInTokens} tokens, Spent: ${amountInSol} SOL`);
 
     // Get the current price in SOL for the token
     let currentPrice = 0;
