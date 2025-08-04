@@ -264,6 +264,21 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json(healthInfo);
 });
 
+// Test webhook endpoint for debugging
+app.post('/test-webhook', (req: Request, res: Response) => {
+  console.log('=== TEST WEBHOOK RECEIVED ===');
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body:', JSON.stringify(req.body, null, 2));
+  console.log('Timestamp:', new Date().toISOString());
+  console.log('=== END TEST WEBHOOK ===');
+  
+  res.status(200).json({ 
+    status: 'OK', 
+    message: 'Test webhook received and logged',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.listen(PORT, () => {
   logger.logInfo('system', `🚀 Webhook server running on port ${PORT}`);
 });

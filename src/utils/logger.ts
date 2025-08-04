@@ -146,14 +146,20 @@ class Logger {
         });
     }
 
-    logError(category: EventLog['category'], message: string, details?: string) {
+    logInfo(category: EventLog['category'], message: string, details?: string) {
         this.logEvent({
             timestamp: new Date().toISOString(),
-            type: 'error',
+            type: 'info',
             category,
             message,
             details
         });
+        
+        // Also log to console for Render visibility
+        console.log(`[INFO][${category}] ${message}`);
+        if (details) {
+            console.log(`Details: ${details}`);
+        }
     }
 
     logWarning(category: EventLog['category'], message: string, details?: string) {
@@ -164,16 +170,28 @@ class Logger {
             message,
             details
         });
+        
+        // Also log to console for Render visibility
+        console.warn(`[WARNING][${category}] ${message}`);
+        if (details) {
+            console.warn(`Details: ${details}`);
+        }
     }
 
-    logInfo(category: EventLog['category'], message: string, details?: string) {
+    logError(category: EventLog['category'], message: string, details?: string) {
         this.logEvent({
             timestamp: new Date().toISOString(),
-            type: 'info',
+            type: 'error',
             category,
             message,
             details
         });
+        
+        // Also log to console for Render visibility
+        console.error(`[ERROR][${category}] ${message}`);
+        if (details) {
+            console.error(`Details: ${details}`);
+        }
     }
 }
 
