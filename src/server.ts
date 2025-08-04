@@ -48,10 +48,63 @@ app.post('/webhook', async (req: Request, res: Response) => {
 
 async function handleEvent(data: any) {
   logger.logInfo('system', '🔔 Webhook received', JSON.stringify(data));
-  if (data.type === 'SWAP') {
-    await handleSwap(data);
-  } else {
-    logger.logInfo('system', `⚠️ Unhandled event type: ${data.type}`);
+  
+  // Handle different transaction types
+  switch (data.type) {
+    case 'SWAP':
+      await handleSwap(data);
+      break;
+    case 'NFT_SALE':
+      logger.logInfo('system', '📦 NFT Sale detected - not copying (NFTs not supported)');
+      break;
+    case 'TRANSFER':
+      logger.logInfo('system', '💸 Transfer detected - checking if it involves target wallet');
+      await handleTransfer(data);
+      break;
+    case 'TOKEN_MINT':
+      logger.logInfo('system', '🪙 Token Mint detected - not copying');
+      break;
+    case 'TOKEN_BURN':
+      logger.logInfo('system', '🔥 Token Burn detected - not copying');
+      break;
+    default:
+      logger.logInfo('system', `⚠️ Unhandled event type: ${data.type}`);
+      // Log the full data for debugging
+      logger.logInfo('system', 'Full transaction data for debugging:', JSON.stringify(data, null, 2));
+  }
+}
+
+async function handleTransfer(data: any) {
+  try {
+    const targetWallet = process.env.TARGET_WALLET_ADDRESS;
+    const tokenTransfers = data.tokenTransfers || [];
+    const nativeTransfers = data.nativeTransfers || [];
+
+    // Check if target wallet is involved in any transfers
+    const targetInvolved = tokenTransfers.some((transfer: any) => 
+      transfer.fromUserAccount === targetWallet || 
+      transfer.toUserAccount === targetWallet ||
+      transfer.fromTokenAccount === targetWallet || 
+      transfer.toTokenAccount === targetWallet
+    );
+
+    const targetInNativeTransfer = nativeTransfers.some((transfer: any) =>
+      transfer.fromUserAccount === targetWallet ||
+      transfer.toUserAccount === targetWallet
+    );
+
+    if (targetInvolved || targetInNativeTransfer) {
+      logger.logInfo('system', '🎯 Target wallet involved in transfer transaction');
+      logger.logInfo('system', 'Token transfers:', JSON.stringify(tokenTransfers, null, 2));
+      logger.logInfo('system', 'Native transfers:', JSON.stringify(nativeTransfers, null, 2));
+      
+      // For now, just log the transfer - you can add copy logic here if needed
+      logger.logInfo('system', 'Transfer detected but not copying (transfer copying not implemented)');
+    } else {
+      logger.logInfo('system', 'Target wallet not involved in this transfer');
+    }
+  } catch (err) {
+    logger.logError('system', '❌ Error processing transfer', err instanceof Error ? err.message : String(err));
   }
 }
 
