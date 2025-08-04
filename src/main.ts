@@ -28,57 +28,57 @@ class Sniper {
         console.log('Readline interface setup complete');
     }
 
-    // public setupCommandInput() {
-    //     console.log('\n=== Command Interface Setup ===');
-    //     console.log('Command interface ready. Type a command or !help for options.\n');
-    //     this.rl.prompt();
-    //     this.rl.on('line', async (input) => {
-    //         const trimmedInput = input.trim();
-    //         if (trimmedInput) {
-    //             try {
-    //                 const command = trimmedInput.startsWith('!') ? trimmedInput : `!${trimmedInput}`;
-    //                 const response = await commandHandler.handleCommand(command);
-    //                 if (response) {
-    //                     console.log(response);
-    //                 } else {
-    //                     console.log('\nNo response from command handler\n');
-    //                 }
-    //             } catch (error: any) {
-    //                 console.error('\n❌ Error:', error.message, '\n');
-    //             }
-    //         }
-    //         this.rl.prompt();
-    //     });
-    //     console.log('\n=== Available Commands ===');
-    //     console.log('!help - Show this help message');
-    //     console.log('!balance <token_address> - Check token balance');
-    //     console.log('!sell <token_address> <amount> - Sell specific amount');
-    //     console.log('!sellp <token_address> <percentage> - Sell percentage of holdings');
-    //     console.log('!buy <token_address> <sol_amount> - Buy a token with a specified amount of SOL');
-    //     this.rl.prompt();
-    // }
+    public setupCommandInput() {
+        console.log('\n=== Command Interface Setup ===');
+        console.log('Command interface ready. Type a command or !help for options.\n');
+        this.rl.prompt();
+        this.rl.on('line', async (input) => {
+            const trimmedInput = input.trim();
+            if (trimmedInput) {
+                try {
+                    const command = trimmedInput.startsWith('!') ? trimmedInput : `!${trimmedInput}`;
+                    const response = await commandHandler.handleCommand(command);
+                    if (response) {
+                        console.log(response);
+                    } else {
+                        console.log('\nNo response from command handler\n');
+                    }
+                } catch (error: any) {
+                    console.error('\n❌ Error:', error.message, '\n');
+                }
+            }
+            this.rl.prompt();
+        });
+        console.log('\n=== Available Commands ===');
+        console.log('!help - Show this help message');
+        console.log('!balance <token_address> - Check token balance');
+        console.log('!sell <token_address> <amount> - Sell specific amount');
+        console.log('!sellp <token_address> <percentage> - Sell percentage of holdings');
+        console.log('!buy <token_address> <sol_amount> - Buy a token with a specified amount of SOL');
+        this.rl.prompt();
+    }
 
-    // public async asyncStartup() {
-    //     try {
-    //         console.log('Launching Sniper bot...');
-    //         // Optionally, you can uncomment the wallet check if you want to enforce it
-    //         // if (!await walletManager.checkMinimumBalance()) {
-    //         //     throw new Error('Insufficient balance');
-    //         // }
-    //         wsManager.on('transaction', this.handleTransaction.bind(this));
-    //         this.isRunning = true;
-    //         console.log('Sniper started successfully');
-    //     } catch (error) {
-    //         console.error('Error starting trading bot:', error);
-    //         this.stop();
-    //     }
-    // }
+    public async asyncStartup() {
+        try {
+            console.log('Launching Sniper bot...');
+            // Optionally, you can uncomment the wallet check if you want to enforce it
+            // if (!await walletManager.checkMinimumBalance()) {
+            //     throw new Error('Insufficient balance');
+            // }
+            wsManager.on('transaction', this.handleTransaction.bind(this));
+            this.isRunning = true;
+            console.log('Sniper started successfully');
+        } catch (error) {
+            console.error('Error starting trading bot:', error);
+            this.stop();
+        }
+    }
 
-    // stop() {
-    //     this.isRunning = false;
-    //     this.rl.close();
-    //     console.log('Trading bot stopped');
-    // }
+    stop() {
+        this.isRunning = false;
+        this.rl.close();
+        console.log('Trading bot stopped');
+    }
 
     async handleTransaction(transaction: any) {
         if (!this.isRunning) return;
@@ -102,12 +102,12 @@ class Sniper {
         }
     }
 
-    // private async emergencyStop() {
-    //     console.log("🛑 Emergency stop triggered!");
-    //     this.stop();
-    //     await this.cancelPendingTransactions();
-    //     console.log("Final wallet balance:", await walletManager.getBalance());
-    // }
+    private async emergencyStop() {
+        console.log("🛑 Emergency stop triggered!");
+        this.stop();
+        await this.cancelPendingTransactions();
+        console.log("Final wallet balance:", await walletManager.getBalance());
+    }
 
     private async cancelPendingTransactions() {
         try {
@@ -141,5 +141,6 @@ class Sniper {
 }
 
 const bot = new Sniper();
-// bot.setupCommandInput();
-// bot.asyncStartup();
+bot.setupCommandInput();
+
+bot.asyncStartup();

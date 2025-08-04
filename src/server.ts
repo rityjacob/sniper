@@ -14,7 +14,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(bodyParser.json());
 
-// Add this at the top of the file after imports
 if (!process.env.TARGET_WALLET_ADDRESS) {
   logger.logError('system', '❌ TARGET_WALLET_ADDRESS environment variable is not set');
   process.exit(1);
