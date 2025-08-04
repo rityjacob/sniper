@@ -18,6 +18,12 @@ if (!process.env.TARGET_WALLET_ADDRESS) {
 
 // Webhook endpoint for Helius
 app.post('/webhook', async (req: Request, res: Response) => {
+  console.log('=== WEBHOOK RECEIVED ===');
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body:', JSON.stringify(req.body, null, 2));
+  console.log('Timestamp:', new Date().toISOString());
+  console.log('=== END WEBHOOK ===');
+  
   logger.logInfo('webhook', 'Webhook received', JSON.stringify(req.body));
   
   res.sendStatus(200);
