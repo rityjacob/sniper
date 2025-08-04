@@ -250,7 +250,7 @@ class DexManager {
                         maxRetries: 3, // Increase retries for transaction
                         preflightCommitment: 'processed' // Use processed commitment for faster confirmation
                     });
-                    logger.logTransactionSuccess(signature, tokenAddress, amount.toString());
+                    logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
                     return signature;
                 } catch (error: any) {
                     if (error.message.includes('0x1771') && retries < TRANSACTION_CONFIG.maxRetries - 1) {
@@ -277,7 +277,7 @@ class DexManager {
                 }
             });
             const errorMessage = error.message || 'Unknown error';
-            logger.logTransactionFailure('pending', tokenAddress, amount.toString(), errorMessage);
+            logger.logTransaction('pending', tokenAddress, amount.toString(), 'failed', errorMessage);
             throw error;
         }
     }
@@ -359,10 +359,10 @@ class DexManager {
             // Execute the swap
             const signature = await walletManager.signAndSendTransaction(transaction);
             
-            logger.logTransactionSuccess(signature, tokenAddress, tokenAmount.toString());
+            logger.logTransaction(signature, tokenAddress, tokenAmount.toString(), 'success');
             return signature;
         } catch (error: any) {
-            logger.logTransactionFailure('pending', tokenAddress, tokenAmount.toString(), error.message);
+            logger.logTransaction('pending', tokenAddress, tokenAmount.toString(), 'failed', error.message);
             throw error;
         }
     }
