@@ -72,6 +72,17 @@ export class WalletManager {
             if (transaction instanceof Transaction) {
                 // Handle legacy transaction
                 transaction.recentBlockhash = blockhash;
+                
+                // Add compute unit instructions for legacy transactions
+                const { ComputeBudgetProgram } = await import('@solana/web3.js');
+                const modifyComputeUnits = ComputeBudgetProgram.setComputeUnitLimit({
+                    units: TRANSACTION_CONFIG.computeUnitLimit
+                });
+                const addPriorityFee = ComputeBudgetProgram.setComputeUnitPrice({
+                    microLamports: TRANSACTION_CONFIG.computeUnitPrice
+                });
+                
+                transaction.add(modifyComputeUnits, addPriorityFee);
                 transaction.sign(this.wallet);
             } else {
                 // Handle versioned transaction
@@ -102,19 +113,6 @@ export class WalletManager {
             if (confirmation.value.err) {
                 throw new Error('Transaction confirmation failed');
             }
-            
-            // Send the transaction
-            const signature = await connection.sendRawTransaction(
-                transaction.serialize(),
-                options
-            );
-            
-            // Wait for confirmation with the specified commitment
-            await connection.confirmTransaction({
-                signature,
-                blockhash: transaction instanceof Transaction ? transaction.recentBlockhash! : transaction.message.recentBlockhash,
-                lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight
-            }, options?.preflightCommitment || 'confirmed');
             
             return signature;
         } catch (error: any) {
