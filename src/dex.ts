@@ -7,7 +7,18 @@ import {
 import { walletManager } from './wallet';
 import { logger } from './utils/logger';
 import { Connection, PublicKey, Transaction, SystemProgram, VersionedTransaction } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAccount, getMint } from '@solana/spl-token';
+
+// Add AbortController type
+declare global {
+    interface AbortController {
+        signal: AbortSignal;
+        abort(): void;
+    }
+    interface AbortSignal {
+        aborted: boolean;
+    }
+}
 
 interface TokenInfo {
     address: string;
@@ -18,51 +29,130 @@ interface TokenInfo {
 class DexManager {
     private lastApiCall: number = 0;
     private readonly minApiCallInterval = 100; // 100ms between API calls
+    private readonly maxRetries = 3;
+    private readonly initialRetryDelay = 1000; // 1 second
+    private readonly timeout = 30000; // 30 seconds
+    private readonly jupiterEndpoints = [
+        'https://quote-api.jup.ag/v6',
+        'https://quote-api.jup.ag/v6',
+        'https://quote-api.jup.ag/v6'
+    ];
+    private currentEndpointIndex = 0;
+    private consecutiveFailures = 0;
+    private readonly maxConsecutiveFailures = 5;
+    private readonly circuitBreakerResetTime = 60000; // 1 minute
+    private lastFailureTime = 0;
 
-    private async rateLimitedFetch(url: string, options?: any): Promise<Response> {
+    private async sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    private getNextEndpoint(): string {
+        this.currentEndpointIndex = (this.currentEndpointIndex + 1) % this.jupiterEndpoints.length;
+        return this.jupiterEndpoints[this.currentEndpointIndex];
+    }
+
+    private async validateToken(tokenAddress: string): Promise<boolean> {
+        try {
+            const connection = walletManager.getConnection();
+            const mintInfo = await getMint(connection, new PublicKey(tokenAddress));
+            return mintInfo !== null;
+        } catch (error) {
+            logger.logError('dex', 'Invalid token address', error instanceof Error ? error.message : String(error));
+            return false;
+        }
+    }
+
+    private async rateLimitedFetch(url: string, options?: any, retryCount = 0): Promise<Response> {
         const now = Date.now();
         const timeSinceLastCall = now - this.lastApiCall;
         
         if (timeSinceLastCall < this.minApiCallInterval) {
-            await new Promise(resolve => setTimeout(resolve, this.minApiCallInterval - timeSinceLastCall));
+            await this.sleep(this.minApiCallInterval - timeSinceLastCall);
+        }
+
+        // Check circuit breaker
+        if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+            const timeSinceLastFailure = now - this.lastFailureTime;
+            if (timeSinceLastFailure < this.circuitBreakerResetTime) {
+                throw new Error('Circuit breaker open - too many consecutive failures');
+            }
+            this.consecutiveFailures = 0;
         }
         
         this.lastApiCall = Date.now();
-        const response = await fetch(url, options);
-        
-        if (!response.ok) {
-            let errorBody: any = '<unreadable>';
-            const contentType = response.headers.get('content-type') || '';
-            
-            try {
-                if (contentType.includes('application/json')) {
-                    errorBody = await response.json();
-                } else {
-                    errorBody = await response.text();
+
+        try {
+            const baseUrl = this.getNextEndpoint();
+            const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+
+            // Validate token address if it's a quote request
+            if (fullUrl.includes('/quote')) {
+                const urlParams = new URL(fullUrl).searchParams;
+                const inputMint = urlParams.get('inputMint');
+                const outputMint = urlParams.get('outputMint');
+                
+                if (inputMint && !inputMint.includes('So11111111111111111111111111111111111111112')) {
+                    const isValid = await this.validateToken(inputMint);
+                    if (!isValid) {
+                        throw new Error('Invalid input token address');
+                    }
                 }
-            } catch (err) {
-                errorBody = '[Failed to parse error body]';
+                if (outputMint && !outputMint.includes('So11111111111111111111111111111111111111112')) {
+                    const isValid = await this.validateToken(outputMint);
+                    if (!isValid) {
+                        throw new Error('Invalid output token address');
+                    }
+                }
+            }
+
+            const response = await fetch(fullUrl, {
+                ...options,
+                timeout: this.timeout,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'User-Agent': 'SniperBot/1.0',
+                    'Connection': 'keep-alive',
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache',
+                    ...options?.headers
+                }
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                logger.logError('dex', `API call failed: ${response.statusText}`, 
+                    `URL: ${fullUrl}\nStatus: ${response.status}\nResponse: ${errorText}`
+                );
+                throw new Error(`API call failed: ${response.statusText} - ${errorText}`);
             }
             
-            const fullError = {
-                url,
-                options,
-                status: response.status,
-                statusText: response.statusText,
-                headers: Object.fromEntries(response.headers.entries()),
-                body: errorBody
-            };
-            
-            logger.logError('dex', `API call failed: ${response.statusText}`, JSON.stringify(fullError, null, 2));
-            console.error('🔴 Full API Error:');
-            console.dir(fullError, { depth: null });
-            
-            const error = new Error(`API call failed: ${response.statusText}`);
-            (error as any).details = fullError;
+            this.consecutiveFailures = 0;
+            return response;
+        } catch (error: any) {
+            this.consecutiveFailures++;
+            this.lastFailureTime = Date.now();
+
+            const isNetworkError = error.code === 'ECONNRESET' || 
+                                 error.code === 'ETIMEDOUT' ||
+                                 error.message.includes('network') ||
+                                 error.message.includes('timeout');
+
+            if (isNetworkError && retryCount < this.maxRetries) {
+                const delay = this.initialRetryDelay * Math.pow(2, retryCount);
+                logger.logWarning('dex', `Retrying API call (${retryCount + 1}/${this.maxRetries})`, 
+                    `URL: ${url}\nDelay: ${delay}ms\nError: ${error.message}`
+                );
+                await this.sleep(delay);
+                return this.rateLimitedFetch(url, options, retryCount + 1);
+            }
+
+            logger.logError('dex', 'API call failed after retries', 
+                `URL: ${url}\nError: ${error.message}`
+            );
             throw error;
         }
-        
-        return response;
     }
 
     async getTokenPrice(tokenAddress: string): Promise<number> {
@@ -161,24 +251,21 @@ class DexManager {
             const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
             const wallet = walletManager.getCurrentWallet();
 
-            // Get quote from Jupiter with optimized settings for speed
-            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&onlyDirectRoutes=true&asLegacyTransaction=true`;
-            
-            console.log('Debug - Quote Request:', {
-                url: quoteUrl,
-                amount,
-                tokenAddress,
-                originalPrice
+            // Get quote from Jupiter
+            const quoteParams = new URLSearchParams({
+                inputMint: 'So11111111111111111111111111111111111111112', // SOL
+                outputMint: tokenAddress,
+                amount: Math.floor(amount * 1e9).toString(), // Convert SOL to lamports
+                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
+                onlyDirectRoutes: 'false',
+                asLegacyTransaction: 'false' // Use versioned transactions
             });
 
             const quoteResponse = await this.rateLimitedFetch(
-                quoteUrl,
+                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
                 {
                     method: 'GET',
-                    headers: { 
-                        'Accept': 'application/json'
-                    },
-                    redirect: 'follow' // Add redirect following
+                    headers: { 'Content-Type': 'application/json' }
                 }
             );
             
@@ -215,7 +302,7 @@ class DexManager {
             });
 
             const swapResponse = await this.rateLimitedFetch(
-                swapUrl,
+                'https://quote-api.jup.ag/v6/swap',
                 {
                     method: 'POST',
                     headers: { 
@@ -235,10 +322,12 @@ class DexManager {
 
             logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
             
-            // Deserialize and execute the transaction
-            const transaction = VersionedTransaction.deserialize(
-                Buffer.from(swapTransaction.swapTransaction, 'base64')
-            );
+            // Decode and execute the swap using VersionedTransaction
+            const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
+            const transaction = VersionedTransaction.deserialize(transactionBuffer);
+            
+            // Execute the swap
+            const signature = await walletManager.signAndSendTransaction(transaction);
             
             // Execute the swap with retry logic
             let retries = 0;
@@ -315,9 +404,24 @@ class DexManager {
                 `Token: ${tokenAddress}, Amount: ${tokenAmount} tokens`
             );
 
-            // Get quote from Jupiter
+            const mintInfo = await getMint(walletManager.getConnection(), new PublicKey(tokenAddress));
+            const amountRaw = Math.floor(tokenAmount * Math.pow(10, mintInfo.decimals)).toString();
+
+            // Get quote from Jupiter (use GET, not POST)
+            const quoteParams = new URLSearchParams({
+                inputMint: tokenAddress,
+                outputMint: 'So11111111111111111111111111111111111111112', // SOL
+                amount: amountRaw,
+                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
+                onlyDirectRoutes: 'false',
+                asLegacyTransaction: 'false'
+            });
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/quote?inputMint=${tokenAddress}&outputMint=So11111111111111111111111111111111111111112&amount=${tokenAmount}&slippageBps=${TRANSACTION_CONFIG.maxSlippage * 100}`
+                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
+                {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                }
             );
             
             const quote = await quoteResponse.json();
@@ -330,7 +434,7 @@ class DexManager {
 
             // Get swap transaction
             const swapResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/swap`,
+                'https://quote-api.jup.ag/v6/swap',
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -353,8 +457,12 @@ class DexManager {
 
             logger.logInfo('dex', 'Sell transaction prepared', 'Executing transaction');
             
-            // Deserialize the transaction
-            const transaction = Transaction.from(Buffer.from(swapTransaction.swapTransaction, 'base64'));
+            // Decode and execute the swap using VersionedTransaction
+            const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
+            const transaction = VersionedTransaction.deserialize(transactionBuffer);
+            
+            // Execute the swap
+            const signature = await walletManager.signAndSendTransaction(transaction);
             
             // Execute the swap
             const signature = await walletManager.signAndSendTransaction(transaction);
@@ -369,31 +477,15 @@ class DexManager {
 
     async getTokenBalance(tokenAddress: string): Promise<number> {
         try {
-            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
-            const wallet = walletManager.getCurrentWallet();
-            const tokenPublicKey = new PublicKey(tokenAddress);
-            const walletPublicKey = walletManager.getPublicKey();
-            
-            // Get the associated token account
-            const associatedTokenAccount = await PublicKey.findProgramAddress(
-                [
-                    walletPublicKey.toBuffer(),
-                    TOKEN_PROGRAM_ID.toBuffer(),
-                    tokenPublicKey.toBuffer(),
-                ],
-                ASSOCIATED_TOKEN_PROGRAM_ID
-            );
-
-            // Get token balance
-            const balance = await connection.getTokenAccountBalance(associatedTokenAccount[0]);
-            
-            logger.logInfo('dex', 'Token balance fetched', 
-                `Token: ${tokenAddress}, Balance: ${balance.value.uiAmount}`
-            );
-            
-            return balance.value.uiAmount || 0;
-        } catch (error: any) {
-            logger.logError('dex', 'Error fetching token balance', error.message);
+            const owner = walletManager.getPublicKey();
+            const mint = new PublicKey(tokenAddress);
+            const ata = await getAssociatedTokenAddress(mint, owner);
+            const connection = walletManager.getConnection();
+            const accountInfo = await getAccount(connection, ata);
+            const mintInfo = await getMint(connection, mint);
+            return Number(accountInfo.amount) / Math.pow(10, mintInfo.decimals);
+        } catch (error) {
+            logger.logError('dex', 'Error fetching token balance', error instanceof Error ? error.message : String(error));
             return 0;
         }
     }
@@ -404,8 +496,22 @@ class DexManager {
         minimumReceived: number;
     }> {
         try {
+            const mintInfo = await getMint(walletManager.getConnection(), new PublicKey(tokenAddress));
+            const amountRaw = Math.floor(tokenAmount * Math.pow(10, mintInfo.decimals)).toString();
+            const quoteParams = new URLSearchParams({
+                inputMint: tokenAddress,
+                outputMint: 'So11111111111111111111111111111111111111112',
+                amount: amountRaw,
+                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
+                onlyDirectRoutes: 'false',
+                asLegacyTransaction: 'false'
+            });
             const quoteResponse = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/quote?inputMint=${tokenAddress}&outputMint=So11111111111111111111111111111111111111112&amount=${tokenAmount}&slippageBps=${TRANSACTION_CONFIG.maxSlippage * 100}`
+                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
+                {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                }
             );
             
             const quote = await quoteResponse.json();
@@ -430,7 +536,7 @@ class DexManager {
             }
 
             const balance = await this.getTokenBalance(tokenAddress);
-            const amountToSell = Math.floor(balance * (percentage / 100));
+            const amountToSell = balance * (percentage / 100);
 
             if (amountToSell <= 0) {
                 throw new Error('No tokens available to sell');
@@ -450,4 +556,3 @@ class DexManager {
 }
 
 export const dexManager = new DexManager();
-            

@@ -64,23 +64,43 @@ export class WalletManager {
         return balance >= TRANSACTION_CONFIG.minSolBalance;
     }
 
-    async signAndSendTransaction(
-        transaction: Transaction | VersionedTransaction,
-        options?: {
-            skipPreflight?: boolean;
-            maxRetries?: number;
-            preflightCommitment?: 'processed' | 'confirmed' | 'finalized';
-        }
-    ): Promise<string> {
+    async signAndSendTransaction(transaction: Transaction | VersionedTransaction): Promise<string> {
         try {
-            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
-            const wallet = this.getCurrentWallet();
-            
-            // Sign the transaction
-            if (transaction instanceof VersionedTransaction) {
-                transaction.sign([wallet]);
+            // Get latest blockhash
+            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
+
+            if (transaction instanceof Transaction) {
+                // Handle legacy transaction
+                transaction.recentBlockhash = blockhash;
+                transaction.sign(this.wallet);
             } else {
-                transaction.sign(wallet);
+                // Handle versioned transaction
+                transaction.sign([this.wallet]);
+            }
+
+            // Add priority fee
+            const priorityFee = TRANSACTION_CONFIG.priorityFee;
+            console.log(`💰 Adding priority fee: ${priorityFee} lamports`);
+
+            // Send transaction with priority fee
+            const signature = await this.connection.sendRawTransaction(
+                transaction.serialize(),
+                {
+                    skipPreflight: false,
+                    maxRetries: TRANSACTION_CONFIG.maxRetries,
+                    preflightCommitment: 'confirmed'
+                }
+            );
+
+            // Wait for confirmation
+            const confirmation = await this.connection.confirmTransaction({
+                signature,
+                blockhash,
+                lastValidBlockHeight
+            }, 'confirmed');
+
+            if (confirmation.value.err) {
+                throw new Error('Transaction confirmation failed');
             }
             
             // Send the transaction
@@ -153,7 +173,6 @@ export class WalletManager {
         return this.wallet.publicKey;
     }
 
-
     async getOrCreateTokenAccount(tokenMint: PublicKey): Promise<PublicKey> {
         try {
             // Get the associated token account address
@@ -185,6 +204,10 @@ export class WalletManager {
             console.error("❌ Failed to get or create token account:", error);
             throw error;
         }
+    }
+
+    public getConnection(): Connection {
+        return this.connection;
     }
 }
 
