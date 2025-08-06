@@ -179,26 +179,17 @@ async function handleSwap(data: any) {
     console.log('🎯 Token Mint:', tokenMint);
     console.log('💰 Target Amount:', targetAmountInSol.toFixed(6), 'SOL');
 
-    // Calculate our trade amount based on percentage and limits
+    // Use fixed buy amount instead of percentage calculation
     const { TRANSACTION_CONFIG } = await import('./config');
-    const percentageMultiplier = TRANSACTION_CONFIG.percentageOfTargetTrade / 100; // Convert percentage to decimal
-    let ourTradeAmount = targetAmountInSol * percentageMultiplier;
+    const ourTradeAmount = TRANSACTION_CONFIG.fixedBuyAmount;
     
     console.log('📊 TRADE CALCULATION:');
     console.log('   - Target Amount:', targetAmountInSol.toFixed(6), 'SOL');
-    console.log('   - Percentage:', TRANSACTION_CONFIG.percentageOfTargetTrade + '%');
-    console.log('   - Raw Calculation:', ourTradeAmount.toFixed(6), 'SOL');
-    
-    // Apply max buy limit
-    if (ourTradeAmount > TRANSACTION_CONFIG.maxBuyAmount) {
-      console.log('   - Max Buy Limit Applied:', TRANSACTION_CONFIG.maxBuyAmount, 'SOL');
-      ourTradeAmount = TRANSACTION_CONFIG.maxBuyAmount;
-    }
-
+    console.log('   - Fixed Buy Amount:', ourTradeAmount.toFixed(6), 'SOL');
     console.log('   - Final Trade Amount:', ourTradeAmount.toFixed(6), 'SOL');
 
     logger.logInfo('swap', `Target wallet bought: ${tokenMint} for ${targetAmountInSol} SOL`);
-    logger.logInfo('swap', `Calculated our trade: ${ourTradeAmount} SOL (${TRANSACTION_CONFIG.percentageOfTargetTrade}% of ${targetAmountInSol} SOL, max: ${TRANSACTION_CONFIG.maxBuyAmount} SOL)`);
+    logger.logInfo('swap', `Fixed copy trade amount: ${ourTradeAmount} SOL`);
 
     // Execute the copy trade
     try {
@@ -279,18 +270,12 @@ async function handleTransfer(data: any) {
     const tokenMint = buyTransfer.mint;
     const targetAmountInSol = totalSolSpent / 1e9; // Convert lamports to SOL
 
-    // Calculate our trade amount based on percentage and limits
+    // Use fixed buy amount instead of percentage calculation
     const { TRANSACTION_CONFIG } = await import('./config');
-    const percentageMultiplier = TRANSACTION_CONFIG.percentageOfTargetTrade / 100; // Convert percentage to decimal
-    let ourTradeAmount = targetAmountInSol * percentageMultiplier;
-    
-    // Apply max buy limit
-    if (ourTradeAmount > TRANSACTION_CONFIG.maxBuyAmount) {
-      ourTradeAmount = TRANSACTION_CONFIG.maxBuyAmount;
-    }
+    const ourTradeAmount = TRANSACTION_CONFIG.fixedBuyAmount;
 
     logger.logInfo('transfer', `Target wallet bought: ${tokenMint} for ${targetAmountInSol} SOL`);
-    logger.logInfo('transfer', `Calculated our trade: ${ourTradeAmount} SOL (${TRANSACTION_CONFIG.percentageOfTargetTrade}% of ${targetAmountInSol} SOL, max: ${TRANSACTION_CONFIG.maxBuyAmount} SOL)`);
+    logger.logInfo('transfer', `Fixed copy trade amount: ${ourTradeAmount} SOL`);
 
     // Execute the copy trade
     try {

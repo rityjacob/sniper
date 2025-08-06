@@ -16,8 +16,7 @@ interface TransactionConfig {
     timeout: number;
     minSolBalance: number;
     maxSolPerTrade: number;
-    percentageOfTargetTrade: number;
-    maxBuyAmount: number;
+    fixedBuyAmount: number; // Fixed SOL amount to buy for each copy trade
     computeUnitLimit: number;
     computeUnitPrice: number;
 }
@@ -45,17 +44,16 @@ interface SafetyConfig {
 }
 
 export const TRANSACTION_CONFIG: TransactionConfig = {
-    maxSlippage: 0.25,
+    maxSlippage: 0.40,
     priorityFee: 1000000,
     tip: 500000,
     maxRetries: 2,
     timeout: 10000,
     minSolBalance: Number(process.env.MIN_SOL_BALANCE) || 0.0001,
     maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 0.1,
-    percentageOfTargetTrade: Number(process.env.PERCENTAGE_OF_TARGET_TRADE) || 1,
-    maxBuyAmount: 1,
+    fixedBuyAmount: Number(process.env.FIXED_BUY_AMOUNT) || 0.1, // Fixed SOL amount for each copy trade
     computeUnitLimit: 1400000,
-    computeUnitPrice: 20000,
+    computeUnitPrice: 50000,
 };
 
 export const DEX_CONFIG: DexConfig = {

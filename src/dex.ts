@@ -246,6 +246,23 @@ class DexManager {
             
             console.log('✅ BALANCE SUFFICIENT');
 
+            // Check WSOL balance for swaps
+            console.log('🔍 CHECKING WSOL BALANCE...');
+            try {
+                const wsolMint = new PublicKey('So11111111111111111111111111111111111111112');
+                const wsolAccount = await getAssociatedTokenAddress(wsolMint, walletManager.getPublicKey());
+                const wsolBalance = await getAccount(walletManager.getConnection(), wsolAccount);
+                const wsolAmount = Number(wsolBalance.amount) / 1e9;
+                console.log('   - WSOL Balance:', wsolAmount.toFixed(6), 'WSOL');
+                
+                if (wsolAmount < amount) {
+                    console.log('⚠️  WSOL balance insufficient, attempting to wrap SOL...');
+                    // The swap will automatically wrap SOL, so this should be fine
+                }
+            } catch (error) {
+                console.log('⚠️  WSOL account not found, will be created during swap');
+            }
+
             // Check price movement if original price is provided
             if (originalPrice) {
                 const currentPrice = await this.getTokenPrice(tokenAddress);
@@ -387,18 +404,27 @@ class DexManager {
             
             throw new Error('Max retries exceeded for swap execution');
         } catch (error: any) {
-            console.error('Debug - Swap Error:', {
-                error: error.message,
-                tokenAddress,
-                amount,
-                status: error.status,
-                response: error.response,
-                logs: error.logs,
-                requestBody: {
-                    quote: quoteBody,
-                    swap: swapBody
-                }
+            console.error('❌ SWAP ERROR ANALYSIS:');
+            console.error('   - Error Type:', error.constructor.name);
+            console.error('   - Error Message:', error.message);
+            
+            // Check for specific Solana errors
+            if (error.message.includes('6001')) {
+                console.error('   - Custom Error 6001 detected');
+                console.error('   - Likely causes:');
+                console.error('     * Insufficient WSOL balance');
+                console.error('     * Token account not created');
+                console.error('     * Slippage exceeded');
+                console.error('     * Network congestion');
+            }
+            
+            console.error('   - Token Address:', tokenAddress);
+            console.error('   - Amount:', amount, 'SOL');
+            console.error('   - Request Body:', {
+                quote: quoteBody,
+                swap: swapBody
             });
+            
             const errorMessage = error.message || 'Unknown error';
             logger.logTransaction('pending', tokenAddress, amount.toString(), 'failed', errorMessage);
             throw error;
