@@ -55,7 +55,7 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
     percentageOfTargetTrade: Number(process.env.PERCENTAGE_OF_TARGET_TRADE) || 1,
     maxBuyAmount: 1,
     computeUnitLimit: 1400000,
-    computeUnitPrice: 5000,
+    computeUnitPrice: 20000,
 };
 
 export const DEX_CONFIG: DexConfig = {

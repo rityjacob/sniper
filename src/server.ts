@@ -18,10 +18,19 @@ if (!process.env.TARGET_WALLET_ADDRESS) {
 
 // Webhook endpoint for Helius
 app.post('/webhook', async (req: Request, res: Response) => {
-  console.log('=== WEBHOOK RECEIVED ===');
-  console.log('Timestamp:', new Date().toISOString());
-  console.log('Event Type:', req.body.type || 'Unknown');
-  console.log('Signature:', req.body.signature || 'N/A');
+  console.log('\n🔔 === WEBHOOK RECEIVED ===');
+  console.log('📅 Timestamp:', new Date().toISOString());
+  console.log('📋 Event Type:', req.body.type || 'Unknown');
+  console.log('🔍 Signature:', req.body.signature || 'N/A');
+  console.log('📊 Payload Size:', JSON.stringify(req.body).length, 'characters');
+  
+  // Enhanced debugging for webhook structure
+  console.log('\n🔍 WEBHOOK STRUCTURE ANALYSIS:');
+  console.log('  - Has tokenTransfers:', !!req.body.tokenTransfers);
+  console.log('  - Has nativeTransfers:', !!req.body.nativeTransfers);
+  console.log('  - Has instructions:', !!req.body.instructions);
+  console.log('  - Has accountData:', !!req.body.accountData);
+  console.log('  - Has feePayer:', !!req.body.feePayer);
   
   // Format the payload in a readable way
   if (req.body.tokenTransfers && req.body.tokenTransfers.length > 0) {
@@ -31,8 +40,12 @@ app.post('/webhook', async (req: Request, res: Response) => {
       console.log(`     From: ${transfer.fromUserAccount || 'N/A'}`);
       console.log(`     To: ${transfer.toUserAccount || 'N/A'}`);
       console.log(`     Amount: ${transfer.tokenAmount || 'N/A'}`);
+      console.log(`     Token Account From: ${transfer.fromTokenAccount || 'N/A'}`);
+      console.log(`     Token Account To: ${transfer.toTokenAccount || 'N/A'}`);
       console.log('');
     });
+  } else {
+    console.log('\n📦 TOKEN TRANSFERS: None found');
   }
   
   if (req.body.nativeTransfers && req.body.nativeTransfers.length > 0) {
@@ -42,8 +55,11 @@ app.post('/webhook', async (req: Request, res: Response) => {
       console.log(`  ${index + 1}. ${amountInSol} SOL`);
       console.log(`     From: ${transfer.fromUserAccount || 'N/A'}`);
       console.log(`     To: ${transfer.toUserAccount || 'N/A'}`);
+      console.log(`     Amount (lamports): ${transfer.amount || 'N/A'}`);
       console.log('');
     });
+  } else {
+    console.log('💰 NATIVE TRANSFERS (SOL): None found');
   }
   
   // Check if target wallet is involved
@@ -58,7 +74,13 @@ app.post('/webhook', async (req: Request, res: Response) => {
     console.log(`🎯 TARGET WALLET INVOLVED: ${isTargetInvolved ? 'YES' : 'NO'}`);
     if (isTargetInvolved) {
       console.log(`   Target Wallet: ${targetWallet}`);
+      console.log(`   Looking for: ${targetWallet}`);
+    } else {
+      console.log(`   Target Wallet: ${targetWallet}`);
+      console.log(`   ❌ Target wallet not found in this transaction`);
     }
+  } else {
+    console.log('❌ TARGET_WALLET_ADDRESS not configured');
   }
   
   console.log('=== END WEBHOOK ===\n');
@@ -104,20 +126,48 @@ async function handleSwap(data: any) {
     const nativeTransfers = data.nativeTransfers || [];
     const targetWallet = process.env.TARGET_WALLET_ADDRESS;
 
+    console.log('\n🔄 === PROCESSING SWAP EVENT ===');
+    console.log('🎯 Target Wallet:', targetWallet);
+    console.log('📊 Token Transfers Count:', tokenTransfers.length);
+    console.log('💰 Native Transfers Count:', nativeTransfers.length);
+
     logger.logInfo('swap', 'Processing swap event', `Target wallet: ${targetWallet}`);
 
     // Find the token being bought (token that was transferred TO the target wallet)
     const buyTransfer = tokenTransfers.find((transfer: any) => {
-      return transfer.toUserAccount === targetWallet || transfer.toTokenAccount === targetWallet;
+      const isTargetReceiver = transfer.toUserAccount === targetWallet || transfer.toTokenAccount === targetWallet;
+      console.log(`🔍 Checking transfer: ${transfer.mint || 'Unknown'}`);
+      console.log(`   To User Account: ${transfer.toUserAccount}`);
+      console.log(`   To Token Account: ${transfer.toTokenAccount}`);
+      console.log(`   Target Wallet: ${targetWallet}`);
+      console.log(`   Is Target Receiver: ${isTargetReceiver}`);
+      return isTargetReceiver;
     });
 
+    console.log('📦 Buy Transfer Found:', !!buyTransfer);
+    if (buyTransfer) {
+      console.log('   Token Mint:', buyTransfer.mint);
+      console.log('   Token Amount:', buyTransfer.tokenAmount);
+      console.log('   To User Account:', buyTransfer.toUserAccount);
+      console.log('   To Token Account:', buyTransfer.toTokenAccount);
+    }
+
     // Get the SOL amount spent
-    const totalSolSpent = nativeTransfers
-      .filter((transfer: any) => transfer.fromUserAccount === targetWallet)
-      .reduce((sum: number, transfer: any) => sum + transfer.amount, 0);
+    const solTransfersFromTarget = nativeTransfers.filter((transfer: any) => transfer.fromUserAccount === targetWallet);
+    console.log('💸 SOL Transfers FROM Target:', solTransfersFromTarget.length);
+    solTransfersFromTarget.forEach((transfer: any, index: number) => {
+      console.log(`   ${index + 1}. Amount: ${(transfer.amount / 1e9).toFixed(6)} SOL (${transfer.amount} lamports)`);
+      console.log(`      To: ${transfer.toUserAccount}`);
+    });
+
+    const totalSolSpent = solTransfersFromTarget.reduce((sum: number, transfer: any) => sum + transfer.amount, 0);
+    console.log('💸 Total SOL Spent by Target:', (totalSolSpent / 1e9).toFixed(6), 'SOL');
 
     // Check if target wallet is buying
     if (!buyTransfer || totalSolSpent === 0) {
+      console.log('❌ SWAP CONDITIONS NOT MET:');
+      console.log('   - Buy Transfer Found:', !!buyTransfer);
+      console.log('   - Total SOL Spent > 0:', totalSolSpent > 0);
       logger.logInfo('swap', 'Target wallet not buying in this swap');
       return;
     }
@@ -125,26 +175,50 @@ async function handleSwap(data: any) {
     const tokenMint = buyTransfer.mint;
     const targetAmountInSol = totalSolSpent / 1e9; // Convert lamports to SOL
 
+    console.log('✅ SWAP CONDITIONS MET - PROCEEDING WITH COPY TRADE');
+    console.log('🎯 Token Mint:', tokenMint);
+    console.log('💰 Target Amount:', targetAmountInSol.toFixed(6), 'SOL');
+
     // Calculate our trade amount based on percentage and limits
     const { TRANSACTION_CONFIG } = await import('./config');
     const percentageMultiplier = TRANSACTION_CONFIG.percentageOfTargetTrade / 100; // Convert percentage to decimal
     let ourTradeAmount = targetAmountInSol * percentageMultiplier;
     
+    console.log('📊 TRADE CALCULATION:');
+    console.log('   - Target Amount:', targetAmountInSol.toFixed(6), 'SOL');
+    console.log('   - Percentage:', TRANSACTION_CONFIG.percentageOfTargetTrade + '%');
+    console.log('   - Raw Calculation:', ourTradeAmount.toFixed(6), 'SOL');
+    
     // Apply max buy limit
     if (ourTradeAmount > TRANSACTION_CONFIG.maxBuyAmount) {
+      console.log('   - Max Buy Limit Applied:', TRANSACTION_CONFIG.maxBuyAmount, 'SOL');
       ourTradeAmount = TRANSACTION_CONFIG.maxBuyAmount;
     }
+
+    console.log('   - Final Trade Amount:', ourTradeAmount.toFixed(6), 'SOL');
 
     logger.logInfo('swap', `Target wallet bought: ${tokenMint} for ${targetAmountInSol} SOL`);
     logger.logInfo('swap', `Calculated our trade: ${ourTradeAmount} SOL (${TRANSACTION_CONFIG.percentageOfTargetTrade}% of ${targetAmountInSol} SOL, max: ${TRANSACTION_CONFIG.maxBuyAmount} SOL)`);
 
     // Execute the copy trade
     try {
+      console.log('🚀 EXECUTING COPY TRADE...');
+      console.log('   - Token:', tokenMint);
+      console.log('   - Amount:', ourTradeAmount.toFixed(6), 'SOL');
+      console.log('   - Compute Unit Price:', TRANSACTION_CONFIG.computeUnitPrice);
+      console.log('   - Compute Unit Limit:', TRANSACTION_CONFIG.computeUnitLimit);
+      
       await dexManager.executeSwap(tokenMint, ourTradeAmount);
+      console.log('✅ COPY TRADE EXECUTED SUCCESSFULLY');
       logger.logInfo('swap', `Copy trade executed: Bought ${tokenMint} for ${ourTradeAmount} SOL`);
     } catch (err) {
+      console.log('❌ COPY TRADE FAILED:');
+      console.log('   - Error:', err instanceof Error ? err.message : String(err));
+      console.log('   - Stack:', err instanceof Error ? err.stack : 'No stack trace');
       logger.logError('swap', 'Error executing copy trade', err instanceof Error ? err.message : String(err));
     }
+    
+    console.log('=== END SWAP PROCESSING ===\n');
   } catch (err) {
     logger.logError('swap', 'Error processing swap data', err instanceof Error ? err.message : String(err));
   }
@@ -156,20 +230,48 @@ async function handleTransfer(data: any) {
     const nativeTransfers = data.nativeTransfers || [];
     const targetWallet = process.env.TARGET_WALLET_ADDRESS;
 
+    console.log('\n🔄 === PROCESSING TRANSFER EVENT ===');
+    console.log('🎯 Target Wallet:', targetWallet);
+    console.log('📊 Token Transfers Count:', tokenTransfers.length);
+    console.log('💰 Native Transfers Count:', nativeTransfers.length);
+
     logger.logInfo('transfer', 'Processing transfer event', `Target wallet: ${targetWallet}`);
 
     // Find the token being bought (token that was transferred TO the target wallet)
     const buyTransfer = tokenTransfers.find((transfer: any) => {
-      return transfer.toUserAccount === targetWallet || transfer.toTokenAccount === targetWallet;
+      const isTargetReceiver = transfer.toUserAccount === targetWallet || transfer.toTokenAccount === targetWallet;
+      console.log(`🔍 Checking transfer: ${transfer.mint || 'Unknown'}`);
+      console.log(`   To User Account: ${transfer.toUserAccount}`);
+      console.log(`   To Token Account: ${transfer.toTokenAccount}`);
+      console.log(`   Target Wallet: ${targetWallet}`);
+      console.log(`   Is Target Receiver: ${isTargetReceiver}`);
+      return isTargetReceiver;
     });
 
+    console.log('📦 Buy Transfer Found:', !!buyTransfer);
+    if (buyTransfer) {
+      console.log('   Token Mint:', buyTransfer.mint);
+      console.log('   Token Amount:', buyTransfer.tokenAmount);
+      console.log('   To User Account:', buyTransfer.toUserAccount);
+      console.log('   To Token Account:', buyTransfer.toTokenAccount);
+    }
+
     // Get the SOL amount spent by target wallet
-    const totalSolSpent = nativeTransfers
-      .filter((transfer: any) => transfer.fromUserAccount === targetWallet)
-      .reduce((sum: number, transfer: any) => sum + transfer.amount, 0);
+    const solTransfersFromTarget = nativeTransfers.filter((transfer: any) => transfer.fromUserAccount === targetWallet);
+    console.log('💸 SOL Transfers FROM Target:', solTransfersFromTarget.length);
+    solTransfersFromTarget.forEach((transfer: any, index: number) => {
+      console.log(`   ${index + 1}. Amount: ${(transfer.amount / 1e9).toFixed(6)} SOL (${transfer.amount} lamports)`);
+      console.log(`      To: ${transfer.toUserAccount}`);
+    });
+
+    const totalSolSpent = solTransfersFromTarget.reduce((sum: number, transfer: any) => sum + transfer.amount, 0);
+    console.log('💸 Total SOL Spent by Target:', (totalSolSpent / 1e9).toFixed(6), 'SOL');
 
     // Check if target wallet is buying (received tokens and spent SOL)
     if (!buyTransfer || totalSolSpent === 0) {
+      console.log('❌ TRANSFER CONDITIONS NOT MET:');
+      console.log('   - Buy Transfer Found:', !!buyTransfer);
+      console.log('   - Total SOL Spent > 0:', totalSolSpent > 0);
       logger.logInfo('transfer', 'Target wallet not buying in this transfer');
       return;
     }

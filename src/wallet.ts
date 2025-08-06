@@ -66,10 +66,19 @@ export class WalletManager {
 
     async signAndSendTransaction(transaction: Transaction | VersionedTransaction): Promise<string> {
         try {
+            console.log('\n🔐 === SIGNING AND SENDING TRANSACTION ===');
+            console.log('📋 Transaction Type:', transaction instanceof Transaction ? 'Legacy' : 'Versioned');
+            console.log('⚙️  Compute Unit Limit:', TRANSACTION_CONFIG.computeUnitLimit);
+            console.log('⚙️  Compute Unit Price:', TRANSACTION_CONFIG.computeUnitPrice);
+            console.log('💰 Priority Fee:', TRANSACTION_CONFIG.priorityFee, 'lamports');
+            
             // Get latest blockhash
+            console.log('📡 Getting latest blockhash...');
             const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
+            console.log('✅ Blockhash received:', blockhash.substring(0, 8) + '...');
 
             if (transaction instanceof Transaction) {
+                console.log('🔧 Processing Legacy Transaction...');
                 // Handle legacy transaction
                 transaction.recentBlockhash = blockhash;
                 
@@ -82,18 +91,21 @@ export class WalletManager {
                     microLamports: TRANSACTION_CONFIG.computeUnitPrice
                 });
                 
+                console.log('⚙️  Adding compute unit instructions...');
                 transaction.add(modifyComputeUnits, addPriorityFee);
+                console.log('✍️  Signing transaction...');
                 transaction.sign(this.wallet);
+                console.log('✅ Legacy transaction signed');
             } else {
+                console.log('🔧 Processing Versioned Transaction...');
                 // Handle versioned transaction
+                console.log('✍️  Signing versioned transaction...');
                 transaction.sign([this.wallet]);
+                console.log('✅ Versioned transaction signed');
             }
 
-            // Add priority fee
-            const priorityFee = TRANSACTION_CONFIG.priorityFee;
-            console.log(`💰 Adding priority fee: ${priorityFee} lamports`);
-
-            // Send transaction with priority fee
+            // Send transaction
+            console.log('📤 Sending transaction to network...');
             const signature = await this.connection.sendRawTransaction(
                 transaction.serialize(),
                 {
@@ -102,20 +114,37 @@ export class WalletManager {
                     preflightCommitment: 'confirmed'
                 }
             );
+            console.log('✅ Transaction sent successfully');
+            console.log('🔍 Signature:', signature);
 
             // Wait for confirmation
+            console.log('⏳ Waiting for transaction confirmation...');
             const confirmation = await this.connection.confirmTransaction({
                 signature,
                 blockhash,
                 lastValidBlockHeight
             }, 'confirmed');
 
+            console.log('📊 Confirmation Result:');
+            console.log('   - Error:', confirmation.value.err);
+            console.log('   - Context:', confirmation.context);
+
             if (confirmation.value.err) {
+                console.log('❌ TRANSACTION CONFIRMATION FAILED:');
+                console.log('   - Error:', confirmation.value.err);
+                console.log('   - Signature:', signature);
+                console.log('   - Blockhash:', blockhash);
                 throw new Error('Transaction confirmation failed');
             }
             
+            console.log('✅ TRANSACTION CONFIRMED SUCCESSFULLY');
+            console.log('🎉 Final Signature:', signature);
             return signature;
         } catch (error: any) {
+            console.log('❌ TRANSACTION FAILED:');
+            console.log('   - Error Type:', error.constructor.name);
+            console.log('   - Error Message:', error.message);
+            console.log('   - Error Stack:', error.stack);
             logger.logError('wallet', 'Transaction failed', error.message);
             throw error;
         }

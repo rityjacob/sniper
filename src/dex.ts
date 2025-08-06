@@ -218,6 +218,12 @@ class DexManager {
         let swapBody: any;
         
         try {
+            console.log('\n🚀 === EXECUTING SWAP ===');
+            console.log('🎯 Token Address:', tokenAddress);
+            console.log('💰 Amount:', amount, 'SOL');
+            console.log('⚙️  Compute Unit Price:', TRANSACTION_CONFIG.computeUnitPrice);
+            console.log('⚙️  Compute Unit Limit:', TRANSACTION_CONFIG.computeUnitLimit);
+            
             logger.logInfo('dex', 'Executing swap', 
                 `Token: ${tokenAddress}, Amount: ${amount} SOL`
             );
@@ -226,11 +232,19 @@ class DexManager {
             const balance = await walletManager.getBalance();
             const requiredBalance = amount + TRANSACTION_CONFIG.minSolBalance;
             
+            console.log('💳 BALANCE CHECK:');
+            console.log('   - Current Balance:', balance.toFixed(6), 'SOL');
+            console.log('   - Required Balance:', requiredBalance.toFixed(6), 'SOL');
+            console.log('   - Min SOL Balance:', TRANSACTION_CONFIG.minSolBalance, 'SOL');
+            
             if (balance < requiredBalance) {
                 const error = `Insufficient balance. Have: ${balance} SOL, Need: ${requiredBalance} SOL`;
+                console.log('❌ INSUFFICIENT BALANCE:', error);
                 logger.logError('dex', 'Insufficient balance for swap', error);
                 throw new Error(error);
             }
+            
+            console.log('✅ BALANCE SUFFICIENT');
 
             // Check price movement if original price is provided
             if (originalPrice) {
@@ -252,6 +266,7 @@ class DexManager {
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter
+            console.log('📡 GETTING JUPITER QUOTE...');
             const quoteParams = new URLSearchParams({
                 inputMint: 'So11111111111111111111111111111111111111112', // SOL
                 outputMint: tokenAddress,
@@ -260,6 +275,12 @@ class DexManager {
                 onlyDirectRoutes: 'false',
                 asLegacyTransaction: 'false' // Use versioned transactions
             });
+
+            console.log('📋 Quote Parameters:');
+            console.log('   - Input Mint: SOL');
+            console.log('   - Output Mint:', tokenAddress);
+            console.log('   - Amount (lamports):', Math.floor(amount * 1e9));
+            console.log('   - Slippage BPS:', Math.floor(TRANSACTION_CONFIG.maxSlippage * 100));
 
             const quoteResponse = await this.rateLimitedFetch(
                 `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
@@ -270,13 +291,21 @@ class DexManager {
             );
             
             const quote = await quoteResponse.json();
+            console.log('📊 Quote Response:');
+            console.log('   - In Amount:', quote.inAmount);
+            console.log('   - Out Amount:', quote.outAmount);
+            console.log('   - Price Impact:', quote.priceImpactPct);
+            console.log('   - Routes:', quote.routes?.length || 0);
             
             if (!quote.outAmount || !quote.inAmount) {
-                console.error('Debug - Invalid Quote Response:', quote);
+                console.error('❌ Invalid Quote Response:', quote);
                 throw new Error('Invalid quote received from Jupiter');
             }
+            
+            console.log('✅ QUOTE RECEIVED SUCCESSFULLY');
 
             // Get swap transaction with optimized settings for speed
+            console.log('🔧 CREATING SWAP TRANSACTION...');
             const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/swap`;
             swapBody = {
                 userPublicKey: walletManager.getPublicKey().toString(),
@@ -296,10 +325,12 @@ class DexManager {
                 skipUserAccountsCheck: true
             };
 
-            console.log('Debug - Swap Request:', {
-                url: swapUrl,
-                body: swapBody
-            });
+            console.log('📋 Swap Request Details:');
+            console.log('   - User Public Key:', walletManager.getPublicKey().toString());
+            console.log('   - Priority Fee:', TRANSACTION_CONFIG.priorityFee, 'lamports');
+            console.log('   - Dynamic Compute Unit Limit:', true);
+            console.log('   - Legacy Transaction:', true);
+            console.log('   - Skip User Accounts Check:', true);
 
             const swapResponse = await this.rateLimitedFetch(
                 'https://quote-api.jup.ag/v6/swap',
@@ -314,19 +345,26 @@ class DexManager {
             );
             
             const swapTransaction = await swapResponse.json();
+            console.log('📊 Swap Transaction Response:');
+            console.log('   - Has Swap Transaction:', !!swapTransaction.swapTransaction);
+            console.log('   - Transaction Size:', swapTransaction.swapTransaction?.length || 0, 'characters');
             
             if (!swapTransaction.swapTransaction) {
-                console.error('Debug - Invalid Swap Response:', swapTransaction);
+                console.error('❌ Invalid Swap Response:', swapTransaction);
                 throw new Error('Invalid swap transaction received from Jupiter');
             }
 
+            console.log('✅ SWAP TRANSACTION CREATED SUCCESSFULLY');
             logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
             
             // Decode and execute the swap using VersionedTransaction
+            console.log('🔐 DESERIALIZING TRANSACTION...');
             const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
             const transaction = VersionedTransaction.deserialize(transactionBuffer);
+            console.log('✅ TRANSACTION DESERIALIZED');
             
             // Execute the swap
+            console.log('📤 SENDING TRANSACTION...');
             const signature = await walletManager.signAndSendTransaction(transaction);
             
             // Execute the swap with retry logic
