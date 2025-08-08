@@ -377,25 +377,56 @@ class DexManager {
             // Decode and execute the swap using VersionedTransaction
             console.log('🔐 DESERIALIZING TRANSACTION...');
             const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
-            const transaction = VersionedTransaction.deserialize(transactionBuffer);
+            let transaction = VersionedTransaction.deserialize(transactionBuffer);
             console.log('✅ TRANSACTION DESERIALIZED');
             
             // Execute the swap
             console.log('📤 SENDING TRANSACTION...');
             const signature = await walletManager.signAndSendTransaction(transaction);
             
-            // Execute the swap with retry logic
+            // Execute the swap with retry logic and block height validation
             let retries = 0;
             while (retries < TRANSACTION_CONFIG.maxRetries) {
                 try {
+                    // Get fresh blockhash and validate block height before sending
+                    const connection = walletManager.getConnection();
+                    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+                    const currentBlockHeight = await connection.getBlockHeight();
+
+                    // Check if we're close to block expiry
+                    if (currentBlockHeight >= lastValidBlockHeight - 150) { // Buffer of 150 blocks
+                        logger.logWarning('dex', 'Block height close to expiry, refreshing transaction', 
+                            `Current: ${currentBlockHeight}, Last Valid: ${lastValidBlockHeight}`);
+                        
+                        // Rebuild transaction with new blockhash
+                        const swapResponse = await this.rateLimitedFetch(
+                            'https://quote-api.jup.ag/v6/swap',
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(swapBody)
+                            }
+                        );
+                        
+                        const swapTransaction = await swapResponse.json();
+                        const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
+                        transaction = VersionedTransaction.deserialize(transactionBuffer);
+                    }
+
                     // Send transaction with high priority
                     const signature = await walletManager.signAndSendTransaction(transaction);
                     logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
                     return signature;
                 } catch (error: any) {
-                    if (error.message.includes('0x1771') && retries < TRANSACTION_CONFIG.maxRetries - 1) {
+                    // Handle both compute budget exceeded (0x1771) and block height expiration errors
+                    if ((error.message.includes('0x1771') || 
+                         error.message.includes('block height exceeded') || 
+                         error.message.includes('has expired')) && 
+                        retries < TRANSACTION_CONFIG.maxRetries - 1) {
                         retries++;
-                        await new Promise(resolve => setTimeout(resolve, 50)); // Reduced delay for faster retry
+                        // Increase delay for block height errors to allow for new block
+                        const delay = error.message.includes('block height') ? 200 : 50;
+                        await new Promise(resolve => setTimeout(resolve, delay));
                         continue;
                     }
                     throw error;
@@ -519,13 +550,64 @@ class DexManager {
             
             // Decode and execute the swap using VersionedTransaction
             const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
-            const transaction = VersionedTransaction.deserialize(transactionBuffer);
+            let transaction = VersionedTransaction.deserialize(transactionBuffer);
             
-            // Execute the swap
-            const signature = await walletManager.signAndSendTransaction(transaction);
+            // Execute the swap with retry logic and block height validation
+            let retries = 0;
+            while (retries < TRANSACTION_CONFIG.maxRetries) {
+                try {
+                    // Get fresh blockhash and validate block height before sending
+                    const connection = walletManager.getConnection();
+                    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+                    const currentBlockHeight = await connection.getBlockHeight();
+
+                    // Check if we're close to block expiry
+                    if (currentBlockHeight >= lastValidBlockHeight - 150) { // Buffer of 150 blocks
+                        logger.logWarning('dex', 'Block height close to expiry, refreshing transaction', 
+                            `Current: ${currentBlockHeight}, Last Valid: ${lastValidBlockHeight}`);
+                        
+                        // Rebuild transaction with new blockhash
+                        const swapResponse = await this.rateLimitedFetch(
+                            'https://quote-api.jup.ag/v6/swap',
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    quoteResponse: quote,
+                                    userPublicKey: walletManager.getPublicKey().toString(),
+                                    wrapUnwrapSOL: true,
+                                    computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
+                                    computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
+                                    asLegacyTransaction: true
+                                })
+                            }
+                        );
+                        
+                        const swapTransaction = await swapResponse.json();
+                        const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
+                        transaction = VersionedTransaction.deserialize(transactionBuffer);
+                    }
+
+                    const signature = await walletManager.signAndSendTransaction(transaction);
+                    logger.logTransaction(signature, tokenAddress, tokenAmount.toString(), 'success');
+                    return signature;
+                } catch (error: any) {
+                    // Handle both compute budget exceeded (0x1771) and block height expiration errors
+                    if ((error.message.includes('0x1771') || 
+                         error.message.includes('block height exceeded') || 
+                         error.message.includes('has expired')) && 
+                        retries < TRANSACTION_CONFIG.maxRetries - 1) {
+                        retries++;
+                        // Increase delay for block height errors to allow for new block
+                        const delay = error.message.includes('block height') ? 200 : 50;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+                    throw error;
+                }
+            }
             
-            logger.logTransaction(signature, tokenAddress, tokenAmount.toString(), 'success');
-            return signature;
+            throw new Error('Max retries exceeded for swap execution');
         } catch (error: any) {
             logger.logTransaction('pending', tokenAddress, tokenAmount.toString(), 'failed', error.message);
             throw error;
