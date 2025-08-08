@@ -398,19 +398,37 @@ class DexManager {
                         logger.logWarning('dex', 'Block height close to expiry, refreshing transaction', 
                             `Current: ${currentBlockHeight}, Last Valid: ${lastValidBlockHeight}`);
                         
-                        // Rebuild transaction with new blockhash
+                        // Get fresh quote first to avoid stale data
+                        console.log('🔄 Getting fresh quote due to block height expiry...');
+                        const freshQuoteResponse = await this.rateLimitedFetch(
+                            `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
+                            {
+                                method: 'GET',
+                                headers: { 'Content-Type': 'application/json' }
+                            }
+                        );
+                        const freshQuote = await freshQuoteResponse.json();
+                        
+                        // Rebuild transaction with fresh quote and new blockhash
+                        const freshSwapBody = {
+                            ...swapBody,
+                            quoteResponse: freshQuote
+                        };
+                        
                         const swapResponse = await this.rateLimitedFetch(
                             'https://quote-api.jup.ag/v6/swap',
                             {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(swapBody)
+                                body: JSON.stringify(freshSwapBody)
                             }
                         );
                         
                         const swapTransaction = await swapResponse.json();
                         const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
                         transaction = VersionedTransaction.deserialize(transactionBuffer);
+                        
+                        console.log('✅ Transaction refreshed with fresh quote and blockhash');
                     }
 
                     // Send transaction with high priority
@@ -418,6 +436,53 @@ class DexManager {
                     logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
                     return signature;
                 } catch (error: any) {
+                    console.log(`❌ Transaction attempt ${retries + 1} failed:`, error.message);
+                    
+                    // Handle specific Jupiter DEX errors
+                    if (error.message.includes('Custom: 6001')) {
+                        console.log('🔍 Jupiter Error 6001 detected - likely slippage or balance issue');
+                        console.log('💡 Attempting to get fresh quote and retry...');
+                        
+                        if (retries < TRANSACTION_CONFIG.maxRetries - 1) {
+                            retries++;
+                            // Get fresh quote for retry
+                            try {
+                                const freshQuoteResponse = await this.rateLimitedFetch(
+                                    `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
+                                    {
+                                        method: 'GET',
+                                        headers: { 'Content-Type': 'application/json' }
+                                    }
+                                );
+                                const freshQuote = await freshQuoteResponse.json();
+                                
+                                const freshSwapBody = {
+                                    ...swapBody,
+                                    quoteResponse: freshQuote
+                                };
+                                
+                                const swapResponse = await this.rateLimitedFetch(
+                                    'https://quote-api.jup.ag/v6/swap',
+                                    {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify(freshSwapBody)
+                                    }
+                                );
+                                
+                                const swapTransaction = await swapResponse.json();
+                                const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
+                                transaction = VersionedTransaction.deserialize(transactionBuffer);
+                                
+                                console.log('✅ Fresh transaction prepared for retry');
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                                continue;
+                            } catch (quoteError: any) {
+                                console.log('❌ Failed to get fresh quote for retry:', quoteError.message);
+                            }
+                        }
+                    }
+                    
                     // Handle both compute budget exceeded (0x1771) and block height expiration errors
                     if ((error.message.includes('0x1771') || 
                          error.message.includes('block height exceeded') || 
@@ -566,14 +631,25 @@ class DexManager {
                         logger.logWarning('dex', 'Block height close to expiry, refreshing transaction', 
                             `Current: ${currentBlockHeight}, Last Valid: ${lastValidBlockHeight}`);
                         
-                        // Rebuild transaction with new blockhash
+                        // Get fresh quote first to avoid stale data
+                        console.log('🔄 Getting fresh quote due to block height expiry...');
+                        const freshQuoteResponse = await this.rateLimitedFetch(
+                            `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
+                            {
+                                method: 'GET',
+                                headers: { 'Content-Type': 'application/json' }
+                            }
+                        );
+                        const freshQuote = await freshQuoteResponse.json();
+                        
+                        // Rebuild transaction with fresh quote and new blockhash
                         const swapResponse = await this.rateLimitedFetch(
                             'https://quote-api.jup.ag/v6/swap',
                             {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
-                                    quoteResponse: quote,
+                                    quoteResponse: freshQuote,
                                     userPublicKey: walletManager.getPublicKey().toString(),
                                     wrapUnwrapSOL: true,
                                     computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
@@ -586,12 +662,63 @@ class DexManager {
                         const swapTransaction = await swapResponse.json();
                         const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
                         transaction = VersionedTransaction.deserialize(transactionBuffer);
+                        
+                        console.log('✅ Transaction refreshed with fresh quote and blockhash');
                     }
 
                     const signature = await walletManager.signAndSendTransaction(transaction);
                     logger.logTransaction(signature, tokenAddress, tokenAmount.toString(), 'success');
                     return signature;
                 } catch (error: any) {
+                    console.log(`❌ Transaction attempt ${retries + 1} failed:`, error.message);
+                    
+                    // Handle specific Jupiter DEX errors
+                    if (error.message.includes('Custom: 6001')) {
+                        console.log('🔍 Jupiter Error 6001 detected - likely slippage or balance issue');
+                        console.log('💡 Attempting to get fresh quote and retry...');
+                        
+                        if (retries < TRANSACTION_CONFIG.maxRetries - 1) {
+                            retries++;
+                            // Get fresh quote for retry
+                            try {
+                                const freshQuoteResponse = await this.rateLimitedFetch(
+                                    `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
+                                    {
+                                        method: 'GET',
+                                        headers: { 'Content-Type': 'application/json' }
+                                    }
+                                );
+                                const freshQuote = await freshQuoteResponse.json();
+                                
+                                const swapResponse = await this.rateLimitedFetch(
+                                    'https://quote-api.jup.ag/v6/swap',
+                                    {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            quoteResponse: freshQuote,
+                                            userPublicKey: walletManager.getPublicKey().toString(),
+                                            wrapUnwrapSOL: true,
+                                            computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
+                                            computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
+                                            asLegacyTransaction: true
+                                        })
+                                    }
+                                );
+                                
+                                const swapTransaction = await swapResponse.json();
+                                const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
+                                transaction = VersionedTransaction.deserialize(transactionBuffer);
+                                
+                                console.log('✅ Fresh transaction prepared for retry');
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                                continue;
+                            } catch (quoteError: any) {
+                                console.log('❌ Failed to get fresh quote for retry:', quoteError.message);
+                            }
+                        }
+                    }
+                    
                     // Handle both compute budget exceeded (0x1771) and block height expiration errors
                     if ((error.message.includes('0x1771') || 
                          error.message.includes('block height exceeded') || 
