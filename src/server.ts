@@ -140,7 +140,8 @@ async function handleSwap(data: any) {
 
     // Execute the copy trade
     try {
-      await dexManager.executeSwap(tokenMint, ourTradeAmount);
+      const targetSignature = data.signature || data.transactionSignature;
+      await dexManager.executeSwap(tokenMint, ourTradeAmount, undefined, targetSignature);
       logger.logInfo('swap', `Copy trade executed: Bought ${tokenMint} for ${ourTradeAmount} SOL`);
     } catch (err) {
       logger.logError('swap', 'Error executing copy trade', err instanceof Error ? err.message : String(err));
@@ -192,7 +193,8 @@ async function handleTransfer(data: any) {
 
     // Execute the copy trade
     try {
-      await dexManager.executeSwap(tokenMint, ourTradeAmount);
+      const targetSignature = data.signature || data.transactionSignature;
+      await dexManager.executeSwap(tokenMint, ourTradeAmount, undefined, targetSignature);
       logger.logInfo('transfer', `Copy trade executed: Bought ${tokenMint} for ${ourTradeAmount} SOL`);
     } catch (err) {
       logger.logError('transfer', 'Error executing copy trade', err instanceof Error ? err.message : String(err));
