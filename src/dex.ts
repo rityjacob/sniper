@@ -168,11 +168,17 @@ class DexManager {
                 }
             }
 
+            // Debug: Log all program IDs in the transaction
+            const programIds = instructions.map((instruction: any) => accountKeys[instruction.programIdIndex]);
+            console.log('Debug - Program IDs in transaction:', programIds);
+
             // Find pump.fun program instructions
             const pumpFunInstructions = instructions.filter((instruction: any) => {
                 const programId = accountKeys[instruction.programIdIndex];
-                // Pump.fun program ID (you may need to verify this)
-                return programId === 'PFund111111111111111111111111111111111111111111';
+                // Pump.fun program IDs (main program and AMM program)
+                return programId === 'PFund111111111111111111111111111111111111111111' || 
+                       programId === 'troY36K7KUi61' ||
+                       programId.startsWith('troY36'); // Handle full program ID
             });
 
             if (pumpFunInstructions.length === 0) {
@@ -299,8 +305,8 @@ class DexManager {
                 const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
                 const wallet = walletManager.getCurrentWallet();
 
-                // Get quote from Jupiter with optimized settings for speed
-                const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&onlyDirectRoutes=true&asLegacyTransaction=true`;
+                // Get quote from Jupiter with optimized settings for speed and lower slippage
+                const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&onlyDirectRoutes=true&asLegacyTransaction=true&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 100)}`;
                 
                 console.log('Debug - Jupiter Quote Request:', {
                     url: quoteUrl,
