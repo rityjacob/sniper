@@ -128,6 +128,10 @@ class DexManager {
 
 
     private async rebuildPumpFunTransaction(targetSignature: string, tokenAddress: string, amount: number): Promise<string> {
+        // Validate token address - don't try to swap SOL for SOL
+        if (tokenAddress === 'So11111111111111111111111111111111111111112') {
+            throw new Error('Cannot swap SOL for SOL - invalid token address');
+        }
         try {
             logger.logInfo('dex', 'Rebuilding pump.fun transaction', 
                 `Target signature: ${targetSignature}, Token: ${tokenAddress}`
@@ -148,6 +152,26 @@ class DexManager {
             logger.logInfo('dex', 'Target transaction captured', 
                 `Slot: ${targetTransaction.slot}, Block time: ${targetTransaction.blockTime}`
             );
+
+            // Extract the actual token being swapped from transaction metadata
+            let actualTokenAddress = tokenAddress;
+            if (targetTransaction.meta?.postTokenBalances) {
+                // Find the token that was received (positive balance change)
+                const postBalances = targetTransaction.meta.postTokenBalances;
+                const preBalances = targetTransaction.meta.preTokenBalances || [];
+                
+                for (const postBalance of postBalances) {
+                    const preBalance = preBalances.find((pb: any) => pb.accountIndex === postBalance.accountIndex);
+                    const preAmount = preBalance?.uiTokenAmount?.uiAmount || 0;
+                    const postAmount = postBalance.uiTokenAmount?.uiAmount || 0;
+                    
+                    if (postAmount > preAmount && postBalance.mint !== 'So11111111111111111111111111111111111111112') {
+                        actualTokenAddress = postBalance.mint;
+                        console.log('Debug - Extracted token from transaction:', actualTokenAddress);
+                        break;
+                    }
+                }
+            }
 
             // Parse the transaction to extract relevant accounts and instruction data
             const message = targetTransaction.transaction.message;
@@ -171,6 +195,12 @@ class DexManager {
             // Debug: Log all program IDs in the transaction
             const programIds = instructions.map((instruction: any) => accountKeys[instruction.programIdIndex]);
             console.log('Debug - Program IDs in transaction:', programIds);
+            
+            // Debug: Log token transfers to understand what's being swapped
+            if (targetTransaction.meta?.postTokenBalances && targetTransaction.meta?.preTokenBalances) {
+                console.log('Debug - Pre token balances:', targetTransaction.meta.preTokenBalances);
+                console.log('Debug - Post token balances:', targetTransaction.meta.postTokenBalances);
+            }
 
             // Find pump.fun program instructions
             const pumpFunInstructions = instructions.filter((instruction: any) => {
@@ -219,7 +249,9 @@ class DexManager {
             
             // Add the pump.fun instructions with our wallet as the user
             pumpFunInstructions.forEach((instruction: any) => {
-                const accounts = instruction.accounts.map((accountIndex: number) => {
+                // Safely get accounts array
+                const accountIndices = instruction.accounts || [];
+                const accounts = accountIndices.map((accountIndex: number) => {
                     const accountKey = accountKeys[accountIndex];
                     // Replace the target wallet with our wallet where appropriate
                     if (accountKey === targetTransaction.meta?.postTokenBalances?.[0]?.owner) {
@@ -235,7 +267,7 @@ class DexManager {
                         isSigner: account.equals(walletManager.getPublicKey()),
                         isWritable: true
                     })),
-                    data: Buffer.from(instruction.data)
+                    data: Buffer.from(instruction.data || [])
                 });
             });
 
