@@ -175,10 +175,28 @@ class DexManager {
             // Find pump.fun program instructions
             const pumpFunInstructions = instructions.filter((instruction: any) => {
                 const programId = accountKeys[instruction.programIdIndex];
-                // Pump.fun program IDs (main program and AMM program)
-                return programId === 'PFund111111111111111111111111111111111111111111' || 
-                       programId === 'troY36K7KUi61' ||
-                       programId.startsWith('troY36'); // Handle full program ID
+                
+                // Known pump.fun program IDs
+                const knownPumpFunPrograms = [
+                    'PFund111111111111111111111111111111111111111111', // Main pump.fun program
+                    'troY36K7KUi61', // pump.fun AMM program (truncated)
+                    '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // pump.fun AMM program (alternative)
+                    '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', // pump.fun program (alternative)
+                ];
+                
+                // Check if it's a known pump.fun program
+                if (knownPumpFunPrograms.includes(programId) || programId.startsWith('troY36')) {
+                    return true;
+                }
+                
+                // Additional heuristic: Check if any account contains "pump" or "PFund" in the name
+                const accounts = instruction.accounts.map((accountIndex: number) => accountKeys[accountIndex]);
+                const hasPumpRelatedAccount = accounts.some((account: string) => 
+                    account.toLowerCase().includes('pump') || 
+                    account.toLowerCase().includes('pfund')
+                );
+                
+                return hasPumpRelatedAccount;
             });
 
             if (pumpFunInstructions.length === 0) {
