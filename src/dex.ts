@@ -277,7 +277,6 @@ class DexManager {
             }
 
             // Get swap transaction with optimized settings for speed
-            const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/swap`;
             swapBody = {
                 userPublicKey: walletManager.getPublicKey().toString(),
                 quoteResponse: quote,
@@ -297,7 +296,7 @@ class DexManager {
             };
 
             console.log('Debug - Swap Request:', {
-                url: swapUrl,
+                url: 'https://quote-api.jup.ag/v6/swap',
                 body: swapBody
             });
 
@@ -326,19 +325,12 @@ class DexManager {
             const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
             const transaction = VersionedTransaction.deserialize(transactionBuffer);
             
-            // Execute the swap
-            const signature = await walletManager.signAndSendTransaction(transaction);
-            
             // Execute the swap with retry logic
             let retries = 0;
             while (retries < TRANSACTION_CONFIG.maxRetries) {
                 try {
                     // Send transaction with high priority
-                    const signature = await walletManager.signAndSendTransaction(transaction, {
-                        skipPreflight: true, // Skip preflight for faster execution
-                        maxRetries: 3, // Increase retries for transaction
-                        preflightCommitment: 'processed' // Use processed commitment for faster confirmation
-                    });
+                    const signature = await walletManager.signAndSendTransaction(transaction);
                     logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
                     return signature;
                 } catch (error: any) {
@@ -460,9 +452,6 @@ class DexManager {
             // Decode and execute the swap using VersionedTransaction
             const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
             const transaction = VersionedTransaction.deserialize(transactionBuffer);
-            
-            // Execute the swap
-            const signature = await walletManager.signAndSendTransaction(transaction);
             
             // Execute the swap
             const signature = await walletManager.signAndSendTransaction(transaction);

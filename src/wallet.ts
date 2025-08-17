@@ -103,19 +103,6 @@ export class WalletManager {
                 throw new Error('Transaction confirmation failed');
             }
             
-            // Send the transaction
-            const signature = await connection.sendRawTransaction(
-                transaction.serialize(),
-                options
-            );
-            
-            // Wait for confirmation with the specified commitment
-            await connection.confirmTransaction({
-                signature,
-                blockhash: transaction instanceof Transaction ? transaction.recentBlockhash! : transaction.message.recentBlockhash,
-                lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight
-            }, options?.preflightCommitment || 'confirmed');
-            
             return signature;
         } catch (error: any) {
             logger.logError('wallet', 'Transaction failed', error.message);
