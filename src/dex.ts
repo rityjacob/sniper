@@ -15,8 +15,6 @@ interface TokenInfo {
     decimals: number;
 }
 
-
-
 class DexManager {
     private lastApiCall: number = 0;
     private readonly minApiCallInterval = 100; // 100ms between API calls
@@ -124,183 +122,8 @@ class DexManager {
             return true; // Return true even on error to not block trades
         }
     }
-    
 
-
-    private async rebuildPumpFunTransaction(targetSignature: string, tokenAddress: string, amount: number): Promise<string> {
-        // Validate token address - don't try to swap SOL for SOL
-        if (tokenAddress === 'So11111111111111111111111111111111111111112') {
-            throw new Error('Cannot swap SOL for SOL - invalid token address');
-        }
-        try {
-            logger.logInfo('dex', 'Rebuilding pump.fun transaction', 
-                `Target signature: ${targetSignature}, Token: ${tokenAddress}`
-            );
-
-            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
-            
-            // Get the target transaction
-            const targetTransaction = await connection.getTransaction(targetSignature, {
-                commitment: 'confirmed',
-                maxSupportedTransactionVersion: 0
-            });
-
-            if (!targetTransaction) {
-                throw new Error('Target transaction not found');
-            }
-
-            logger.logInfo('dex', 'Target transaction captured', 
-                `Slot: ${targetTransaction.slot}, Block time: ${targetTransaction.blockTime}`
-            );
-
-            // Extract the actual token being swapped from transaction metadata
-            let actualTokenAddress = tokenAddress;
-            if (targetTransaction.meta?.postTokenBalances) {
-                // Find the token that was received (positive balance change)
-                const postBalances = targetTransaction.meta.postTokenBalances;
-                const preBalances = targetTransaction.meta.preTokenBalances || [];
-                
-                for (const postBalance of postBalances) {
-                    const preBalance = preBalances.find((pb: any) => pb.accountIndex === postBalance.accountIndex);
-                    const preAmount = preBalance?.uiTokenAmount?.uiAmount || 0;
-                    const postAmount = postBalance.uiTokenAmount?.uiAmount || 0;
-                    
-                    if (postAmount > preAmount && postBalance.mint !== 'So11111111111111111111111111111111111111112') {
-                        actualTokenAddress = postBalance.mint;
-                        console.log('Debug - Extracted token from transaction:', actualTokenAddress);
-                        break;
-                    }
-                }
-            }
-
-            // Parse the transaction to extract relevant accounts and instruction data
-            const message = targetTransaction.transaction.message;
-            let instructions: any[];
-            let accountKeys: string[];
-
-            if ('instructions' in message) {
-                // Legacy transaction
-                instructions = message.instructions;
-                accountKeys = message.accountKeys.map((key: PublicKey) => key.toString());
-            } else {
-                // Versioned transaction
-                instructions = message.compiledInstructions;
-                const accountKeysObj = message.getAccountKeys();
-                accountKeys = [];
-                for (let i = 0; i < accountKeysObj.length; i++) {
-                    accountKeys.push(accountKeysObj.get(i)?.toString() || '');
-                }
-            }
-
-            // Debug: Log all program IDs in the transaction
-            const programIds = instructions.map((instruction: any) => accountKeys[instruction.programIdIndex]);
-            console.log('Debug - Program IDs in transaction:', programIds);
-            
-            // Debug: Log token transfers to understand what's being swapped
-            if (targetTransaction.meta?.postTokenBalances && targetTransaction.meta?.preTokenBalances) {
-                console.log('Debug - Pre token balances:', targetTransaction.meta.preTokenBalances);
-                console.log('Debug - Post token balances:', targetTransaction.meta.postTokenBalances);
-            }
-
-            // Find pump.fun program instructions
-            const pumpFunInstructions = instructions.filter((instruction: any) => {
-                const programId = accountKeys[instruction.programIdIndex];
-                
-                // Known pump.fun program IDs
-                const knownPumpFunPrograms = [
-                    'PFund111111111111111111111111111111111111111111', // Main pump.fun program
-                    'troY36K7KUi61', // pump.fun AMM program (truncated)
-                    '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // pump.fun AMM program (alternative)
-                    '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', // pump.fun program (alternative)
-                ];
-                
-                // Check if it's a known pump.fun program
-                if (knownPumpFunPrograms.includes(programId) || programId.startsWith('troY36')) {
-                    return true;
-                }
-                
-                // Additional heuristic: Check if any account contains "pump" or "PFund" in the name
-                const accounts = instruction.accounts.map((accountIndex: number) => accountKeys[accountIndex]);
-                const hasPumpRelatedAccount = accounts.some((account: string) => 
-                    account.toLowerCase().includes('pump') || 
-                    account.toLowerCase().includes('pfund')
-                );
-                
-                return hasPumpRelatedAccount;
-            });
-
-            if (pumpFunInstructions.length === 0) {
-                throw new Error('No pump.fun instructions found in target transaction');
-            }
-
-            logger.logInfo('dex', 'Pump.fun instructions found', 
-                `Count: ${pumpFunInstructions.length}`
-            );
-
-            // Extract relevant accounts from the target transaction
-            const relevantAccounts = pumpFunInstructions.map((instruction: any) => {
-                return instruction.accounts.map((accountIndex: number) => 
-                    accountKeys[accountIndex]
-                );
-            }).flat();
-
-            // Create a new transaction with the same structure but for our wallet
-            const transaction = new Transaction();
-            
-            // Add the pump.fun instructions with our wallet as the user
-            pumpFunInstructions.forEach((instruction: any) => {
-                // Safely get accounts array
-                const accountIndices = instruction.accounts || [];
-                const accounts = accountIndices.map((accountIndex: number) => {
-                    const accountKey = accountKeys[accountIndex];
-                    // Replace the target wallet with our wallet where appropriate
-                    if (accountKey === targetTransaction.meta?.postTokenBalances?.[0]?.owner) {
-                        return walletManager.getPublicKey();
-                    }
-                    return new PublicKey(accountKey);
-                });
-
-                transaction.add({
-                    programId: new PublicKey(accountKeys[instruction.programIdIndex]),
-                    keys: accounts.map((account: PublicKey) => ({
-                        pubkey: account,
-                        isSigner: account.equals(walletManager.getPublicKey()),
-                        isWritable: true
-                    })),
-                    data: Buffer.from(instruction.data || [])
-                });
-            });
-
-            // Set recent blockhash
-            const { blockhash } = await connection.getLatestBlockhash();
-            transaction.recentBlockhash = blockhash;
-            transaction.feePayer = walletManager.getPublicKey();
-
-            logger.logInfo('dex', 'Transaction rebuilt', 'Signing and sending');
-
-            // Sign and send the transaction
-            const signature = await walletManager.signAndSendTransaction(transaction, {
-                skipPreflight: true,
-                maxRetries: 3,
-                preflightCommitment: 'processed'
-            });
-
-            logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
-            logger.logInfo('dex', 'Rebuilt transaction successful', `Signature: ${signature}`);
-            
-            return signature;
-        } catch (error: any) {
-            console.error('Debug - Rebuild Transaction Error:', {
-                error: error.message,
-                targetSignature,
-                tokenAddress,
-                amount
-            });
-            throw error;
-        }
-    }
-
-    async executeSwap(tokenAddress: string, amount: number, originalPrice?: number, targetSignature?: string): Promise<string> {
+    async executeSwap(tokenAddress: string, amount: number, originalPrice?: number): Promise<string> {
         let quoteBody: any;
         let swapBody: any;
         
@@ -335,135 +158,110 @@ class DexManager {
                 }
             }
 
-            // Try rebuilding the transaction first (on-chain approach)
-            if (targetSignature) {
-                try {
-                    logger.logInfo('dex', 'Attempting to rebuild transaction first', `Target signature: ${targetSignature}`);
-                    console.log('🔄 Rebuilding transaction on-chain...');
-                    return await this.rebuildPumpFunTransaction(targetSignature, tokenAddress, amount);
-                } catch (rebuildError: any) {
-                    logger.logWarning('dex', 'Transaction rebuild failed, trying Jupiter', rebuildError.message);
-                    console.log('🔄 On-chain rebuild failed, falling back to Jupiter...');
-                }
-            }
+            // Execute swap using Jupiter API directly
+            logger.logInfo('dex', 'Executing Jupiter swap', `Token: ${tokenAddress}`);
+            
+            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
+            const wallet = walletManager.getCurrentWallet();
 
-            // Fallback to Jupiter API
-            let jupiterError: any;
-            try {
-                logger.logInfo('dex', 'Attempting Jupiter swap', `Token: ${tokenAddress}`);
-                
-                const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
-                const wallet = walletManager.getCurrentWallet();
+            // Get quote from Jupiter with optimized settings for speed and lower slippage
+            const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&onlyDirectRoutes=true&asLegacyTransaction=true&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 100)}`;
+            
+            console.log('Debug - Jupiter Quote Request:', {
+                url: quoteUrl,
+                amount,
+                tokenAddress,
+                originalPrice
+            });
 
-                // Get quote from Jupiter with optimized settings for speed and lower slippage
-                const quoteUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=${tokenAddress}&amount=${Math.floor(amount * 1e9)}&onlyDirectRoutes=true&asLegacyTransaction=true&slippageBps=${Math.floor(TRANSACTION_CONFIG.maxSlippage * 100)}`;
-                
-                console.log('Debug - Jupiter Quote Request:', {
-                    url: quoteUrl,
-                    amount,
-                    tokenAddress,
-                    originalPrice
-                });
-
-                const quoteResponse = await this.rateLimitedFetch(
-                    quoteUrl,
-                    {
-                        method: 'GET',
-                        headers: { 
-                            'Accept': 'application/json'
-                        },
-                        redirect: 'follow'
-                    }
-                );
-                
-                const quote = await quoteResponse.json();
-                
-                if (!quote.outAmount || !quote.inAmount) {
-                    console.error('Debug - Invalid Jupiter Quote Response:', quote);
-                    throw new Error('Invalid quote received from Jupiter');
-                }
-
-                // Get swap transaction with optimized settings for speed
-                const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/swap`;
-                swapBody = {
-                    userPublicKey: walletManager.getPublicKey().toString(),
-                    quoteResponse: quote,
-                    prioritizationFeeLamports: {
-                        priorityLevelWithMaxLamports: {
-                            maxLamports: TRANSACTION_CONFIG.priorityFee,
-                            priorityLevel: "veryHigh"
-                        }
+            const quoteResponse = await this.rateLimitedFetch(
+                quoteUrl,
+                {
+                    method: 'GET',
+                    headers: { 
+                        'Accept': 'application/json'
                     },
-                    dynamicComputeUnitLimit: true,
-                    asLegacyTransaction: true,
-                    skipUserAccountsCheck: true
-                };
-
-                console.log('Debug - Jupiter Swap Request:', {
-                    url: swapUrl,
-                    body: swapBody
-                });
-
-                const swapResponse = await this.rateLimitedFetch(
-                    swapUrl,
-                    {
-                        method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify(swapBody)
-                    }
-                );
-                
-                const swapTransaction = await swapResponse.json();
-                
-                if (!swapTransaction.swapTransaction) {
-                    console.error('Debug - Invalid Jupiter Swap Response:', swapTransaction);
-                    throw new Error('Invalid swap transaction received from Jupiter');
+                    redirect: 'follow'
                 }
-
-                logger.logInfo('dex', 'Jupiter swap transaction prepared', 'Executing transaction');
-                
-                // Deserialize and execute the transaction
-                const transaction = VersionedTransaction.deserialize(
-                    Buffer.from(swapTransaction.swapTransaction, 'base64')
-                );
-                
-                // Execute the swap with retry logic
-                let retries = 0;
-                while (retries < TRANSACTION_CONFIG.maxRetries) {
-                    try {
-                        const signature = await walletManager.signAndSendTransaction(transaction, {
-                            skipPreflight: true,
-                            maxRetries: 3,
-                            preflightCommitment: 'processed'
-                        });
-                        logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
-                        logger.logInfo('dex', 'Jupiter swap successful', `Signature: ${signature}`);
-                        return signature;
-                    } catch (error: any) {
-                        if (error.message.includes('0x1771') && retries < TRANSACTION_CONFIG.maxRetries - 1) {
-                            retries++;
-                            await new Promise(resolve => setTimeout(resolve, 50));
-                            continue;
-                        }
-                        throw error;
-                    }
-                }
-                
-                throw new Error('Max retries exceeded for Jupiter swap execution');
-            } catch (error: any) {
-                jupiterError = error;
-                logger.logError('dex', 'Jupiter swap also failed', jupiterError.message);
-                console.error('🔴 Jupiter also failed:', jupiterError.message);
+            );
+            
+            const quote = await quoteResponse.json();
+            
+            if (!quote.outAmount || !quote.inAmount) {
+                console.error('Debug - Invalid Jupiter Quote Response:', quote);
+                throw new Error('Invalid quote received from Jupiter');
             }
 
-            // All methods failed
-            const errorMessage = `All swap methods failed. Jupiter error: ${jupiterError?.message}`;
-            console.log('❌ NOT SUPPORTED: All swap methods failed for this token');
-            logger.logError('dex', 'Token not supported by any method', errorMessage);
-            throw new Error('Token not supported by any method');
+            // Get swap transaction with optimized settings for speed
+            const swapUrl = `${DEX_CONFIG.jupiterApiUrl}/swap/v1/swap`;
+            swapBody = {
+                userPublicKey: walletManager.getPublicKey().toString(),
+                quoteResponse: quote,
+                prioritizationFeeLamports: {
+                    priorityLevelWithMaxLamports: {
+                        maxLamports: TRANSACTION_CONFIG.priorityFee,
+                        priorityLevel: "veryHigh"
+                    }
+                },
+                dynamicComputeUnitLimit: true,
+                asLegacyTransaction: true,
+                skipUserAccountsCheck: true
+            };
+
+            console.log('Debug - Jupiter Swap Request:', {
+                url: swapUrl,
+                body: swapBody
+            });
+
+            const swapResponse = await this.rateLimitedFetch(
+                swapUrl,
+                {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(swapBody)
+                }
+            );
+            
+            const swapTransaction = await swapResponse.json();
+            
+            if (!swapTransaction.swapTransaction) {
+                console.error('Debug - Invalid Jupiter Swap Response:', swapTransaction);
+                throw new Error('Invalid swap transaction received from Jupiter');
+            }
+
+            logger.logInfo('dex', 'Jupiter swap transaction prepared', 'Executing transaction');
+            
+            // Deserialize and execute the transaction
+            const transaction = VersionedTransaction.deserialize(
+                Buffer.from(swapTransaction.swapTransaction, 'base64')
+            );
+            
+            // Execute the swap with retry logic
+            let retries = 0;
+            while (retries < TRANSACTION_CONFIG.maxRetries) {
+                try {
+                    const signature = await walletManager.signAndSendTransaction(transaction, {
+                        skipPreflight: true,
+                        maxRetries: 3,
+                        preflightCommitment: 'processed'
+                    });
+                    logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
+                    logger.logInfo('dex', 'Jupiter swap successful', `Signature: ${signature}`);
+                    return signature;
+                } catch (error: any) {
+                    if (error.message.includes('0x1771') && retries < TRANSACTION_CONFIG.maxRetries - 1) {
+                        retries++;
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+            
+            throw new Error('Max retries exceeded for Jupiter swap execution');
         } catch (error: any) {
             console.error('Debug - Final Swap Error:', {
                 error: error.message,
