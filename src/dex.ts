@@ -1,4 +1,3 @@
-import fetch, { Response } from 'node-fetch';
 import { 
     DEX_CONFIG,
     TRANSACTION_CONFIG,
@@ -6,223 +5,128 @@ import {
 } from './config';
 import { walletManager } from './wallet';
 import { logger } from './utils/logger';
-import { Connection, PublicKey, Transaction, SystemProgram, VersionedTransaction } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAccount, getMint } from '@solana/spl-token';
+import { 
+    Connection, 
+    PublicKey, 
+    Transaction, 
+    SystemProgram, 
+    VersionedTransaction,
+    TransactionInstruction,
+    AccountMeta,
+    sendAndConfirmTransaction
+} from '@solana/web3.js';
+import { 
+    TOKEN_PROGRAM_ID, 
+    ASSOCIATED_TOKEN_PROGRAM_ID, 
+    getAssociatedTokenAddress, 
+    getAccount, 
+    getMint,
+    createAssociatedTokenAccountInstruction,
+    createTransferInstruction
+} from '@solana/spl-token';
+import { PumpFunWebhook, PumpFunSwapParams, SwapResult, TokenBalance } from './types';
 
-// Add AbortController type
-declare global {
-    interface AbortController {
-        signal: AbortSignal;
-        abort(): void;
-    }
-    interface AbortSignal {
-        aborted: boolean;
-    }
-}
-
-interface TokenInfo {
-    address: string;
-    symbol: string;
-    decimals: number;
-}
+// Pump.fun Program ID
+const PUMP_FUN_PROGRAM_ID = new PublicKey('troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61');
 
 class DexManager {
-    private lastApiCall: number = 0;
-    private readonly minApiCallInterval = 100; // 100ms between API calls
-    private readonly maxRetries = 3;
-    private readonly initialRetryDelay = 1000; // 1 second
-    private readonly timeout = 30000; // 30 seconds
-    private readonly jupiterEndpoints = [
-        'https://quote-api.jup.ag/v6',
-        'https://quote-api.jup.ag/v6',
-        'https://quote-api.jup.ag/v6'
-    ];
-    private currentEndpointIndex = 0;
-    private consecutiveFailures = 0;
-    private readonly maxConsecutiveFailures = 5;
-    private readonly circuitBreakerResetTime = 60000; // 1 minute
-    private lastFailureTime = 0;
+    private connection: Connection;
 
-    private async sleep(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
+    constructor() {
+        this.connection = walletManager.getConnection();
     }
 
-    private getNextEndpoint(): string {
-        this.currentEndpointIndex = (this.currentEndpointIndex + 1) % this.jupiterEndpoints.length;
-        return this.jupiterEndpoints[this.currentEndpointIndex];
+    /**
+     * Encode a u64 value as little-endian bytes
+     */
+    private encodeU64LE(amount: bigint): Buffer {
+        const buf = Buffer.alloc(8);
+        buf.writeBigUInt64LE(amount);
+        return buf;
     }
 
-    private async validateToken(tokenAddress: string): Promise<boolean> {
+    /**
+     * Decode base64 instruction data and analyze its structure
+     */
+    private decodeInstructionData(base64Data: string): Buffer {
         try {
-            const connection = walletManager.getConnection();
-            const mintInfo = await getMint(connection, new PublicKey(tokenAddress));
-            return mintInfo !== null;
+            const raw = Buffer.from(base64Data, 'base64');
+            logger.logInfo('dex', 'Decoded instruction data', 
+                `Length: ${raw.length}, Hex: ${raw.toString('hex').substring(0, 32)}...`
+            );
+            return raw;
         } catch (error) {
-            logger.logError('dex', 'Invalid token address', error instanceof Error ? error.message : String(error));
-            return false;
+            logger.logError('dex', 'Failed to decode instruction data', error instanceof Error ? error.message : String(error));
+            throw new Error('Invalid base64 instruction data');
         }
     }
 
-    private async rateLimitedFetch(url: string, options?: any, retryCount = 0): Promise<Response> {
-        const now = Date.now();
-        const timeSinceLastCall = now - this.lastApiCall;
+    /**
+     * Analyze instruction structure and extract amount
+     */
+    private analyzeInstructionStructure(instructionData: Buffer): { functionId: number; amount: bigint; remainingData: Buffer } {
+        if (instructionData.length < 9) {
+            throw new Error('Instruction data too short');
+        }
+
+        const functionId = instructionData[0];
+        const amountBytes = instructionData.slice(1, 9);
+        const amount = amountBytes.readBigUInt64LE(0);
+        const remainingData = instructionData.slice(9);
+
+        logger.logInfo('dex', 'Instruction analysis', 
+            `Function ID: ${functionId}, Amount: ${amount}, Remaining bytes: ${remainingData.length}`
+        );
+
+        return { functionId, amount, remainingData };
+    }
+
+    /**
+     * Create new instruction data with updated amount
+     */
+    private createUpdatedInstructionData(originalData: Buffer, newAmount: bigint): Buffer {
+        const { functionId, remainingData } = this.analyzeInstructionStructure(originalData);
         
-        if (timeSinceLastCall < this.minApiCallInterval) {
-            await this.sleep(this.minApiCallInterval - timeSinceLastCall);
-        }
+        const newAmountBytes = this.encodeU64LE(newAmount);
+        const updatedData = Buffer.concat([
+            Buffer.from([functionId]),
+            newAmountBytes,
+            remainingData
+        ]);
 
-        // Check circuit breaker
-        if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
-            const timeSinceLastFailure = now - this.lastFailureTime;
-            if (timeSinceLastFailure < this.circuitBreakerResetTime) {
-                throw new Error('Circuit breaker open - too many consecutive failures');
-            }
-            this.consecutiveFailures = 0;
-        }
-        
-        this.lastApiCall = Date.now();
+        logger.logInfo('dex', 'Created updated instruction', 
+            `Original length: ${originalData.length}, New length: ${updatedData.length}, New amount: ${newAmount}`
+        );
 
-        try {
-            const baseUrl = this.getNextEndpoint();
-            const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
-
-            // Validate token address if it's a quote request
-            if (fullUrl.includes('/quote')) {
-                const urlParams = new URL(fullUrl).searchParams;
-                const inputMint = urlParams.get('inputMint');
-                const outputMint = urlParams.get('outputMint');
-                
-                if (inputMint && !inputMint.includes('So11111111111111111111111111111111111111112')) {
-                    const isValid = await this.validateToken(inputMint);
-                    if (!isValid) {
-                        throw new Error('Invalid input token address');
-                    }
-                }
-                if (outputMint && !outputMint.includes('So11111111111111111111111111111111111111112')) {
-                    const isValid = await this.validateToken(outputMint);
-                    if (!isValid) {
-                        throw new Error('Invalid output token address');
-                    }
-                }
-            }
-
-            const response = await fetch(fullUrl, {
-                ...options,
-                timeout: this.timeout,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'User-Agent': 'SniperBot/1.0',
-                    'Connection': 'keep-alive',
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache',
-                    ...options?.headers
-                }
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.logError('dex', `API call failed: ${response.statusText}`, 
-                    `URL: ${fullUrl}\nStatus: ${response.status}\nResponse: ${errorText}`
-                );
-                throw new Error(`API call failed: ${response.statusText} - ${errorText}`);
-            }
-            
-            this.consecutiveFailures = 0;
-            return response;
-        } catch (error: any) {
-            this.consecutiveFailures++;
-            this.lastFailureTime = Date.now();
-
-            const isNetworkError = error.code === 'ECONNRESET' || 
-                                 error.code === 'ETIMEDOUT' ||
-                                 error.message.includes('network') ||
-                                 error.message.includes('timeout');
-
-            if (isNetworkError && retryCount < this.maxRetries) {
-                const delay = this.initialRetryDelay * Math.pow(2, retryCount);
-                logger.logWarning('dex', `Retrying API call (${retryCount + 1}/${this.maxRetries})`, 
-                    `URL: ${url}\nDelay: ${delay}ms\nError: ${error.message}`
-                );
-                await this.sleep(delay);
-                return this.rateLimitedFetch(url, options, retryCount + 1);
-            }
-
-            logger.logError('dex', 'API call failed after retries', 
-                `URL: ${url}\nError: ${error.message}`
-            );
-            throw error;
-        }
+        return updatedData;
     }
 
-    async getTokenPrice(tokenAddress: string): Promise<number> {
-        try {
-            const response = await this.rateLimitedFetch(
-                `https://lite-api.jup.ag/price/v2?ids=${tokenAddress}`,
-                {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                }
-            );
-            const data = await response.json();
-            const price = data.data?.[tokenAddress]?.price || 0;
-            
-            logger.logInfo('dex', 'Token price fetched', 
-                `Token: ${tokenAddress}, Price: ${price} SOL`
-            );
-            
-            return price;
-        } catch (error: any) {
-            console.error('🔴 Debug - Token Price Error:');
-            console.dir(error, { depth: null });
-            logger.logError('dex', 'Failed to get token price', error.message);
-            throw error;
-        }
+    /**
+     * Convert accounts array to AccountMeta format
+     */
+    private convertToAccountMeta(accounts: string[], isSigner: boolean = false): AccountMeta[] {
+        return accounts.map((account, index) => ({
+            pubkey: new PublicKey(account),
+            isSigner: index === 0 ? isSigner : false, // First account is usually the signer
+            isWritable: true
+        }));
     }
 
-    private async getTokenLiquidity(tokenAddress: string): Promise<number> {
+    /**
+     * Execute swap using Pump.fun AMM
+     */
+    async executePumpFunSwap(webhookData: PumpFunWebhook, amount: number): Promise<string> {
         try {
-            const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/liquidity?token=${tokenAddress}`
-            );
-            const data = await response.json();
-            const liquidity = data.liquidity || 0;
-            
-            logger.logInfo('dex', 'Token liquidity fetched', 
-                `Token: ${tokenAddress}, Liquidity: ${liquidity} SOL`
-            );
-            
-            return liquidity;
-        } catch (error: any) {
-            logger.logError('dex', 'Error fetching token liquidity', error.message);
-            return 0;
-        }
-    }
-
-    async checkLiquidity(tokenAddress: string): Promise<boolean> {
-        try {
-            const liquidity = await this.getTokenLiquidity(tokenAddress);
-            // Log liquidity for debugging but don't restrict based on it
-            logger.logInfo('dex', 'Token liquidity', 
-                `Token: ${tokenAddress}, Liquidity: ${liquidity} SOL`
-            );
-            return true; // Always return true regardless of liquidity
-        } catch (error: any) {
-            logger.logError('dex', 'Error checking liquidity', error.message);
-            return true; // Return true even on error to not block trades
-        }
-    }
-    
-    async executeSwap(tokenAddress: string, amount: number, originalPrice?: number): Promise<string> {
-        let quoteBody: any;
-        let swapBody: any;
-        
-        try {
-            logger.logInfo('dex', 'Executing swap', 
-                `Token: ${tokenAddress}, Amount: ${amount} SOL`
+            logger.logInfo('dex', 'Executing Pump.fun swap', 
+                `Input: ${webhookData.inputMint}, Output: ${webhookData.outputMint}, Amount: ${amount} SOL`
             );
 
-            // Check wallet balance first
+            // Validate webhook data
+            if (webhookData.programId !== DEX_CONFIG.pumpFunProgramId) {
+                throw new Error('Invalid Pump.fun program ID');
+            }
+
+            // Check wallet balance
             const balance = await walletManager.getBalance();
             const requiredBalance = amount + TRANSACTION_CONFIG.minSolBalance;
             
@@ -232,238 +136,163 @@ class DexManager {
                 throw new Error(error);
             }
 
-            // Check price movement if original price is provided
-            if (originalPrice) {
-                const currentPrice = await this.getTokenPrice(tokenAddress);
-                const priceChange = ((currentPrice - originalPrice) / originalPrice) * 100;
-                
-                logger.logInfo('dex', 'Price movement check', 
-                    `Original: ${originalPrice}, Current: ${currentPrice}, Change: ${priceChange.toFixed(2)}%`
-                );
+            // Decode original instruction
+            const originalInstructionData = this.decodeInstructionData(webhookData.data);
+            
+            // Convert amount to lamports (SOL to lamports)
+            const amountLamports = BigInt(Math.floor(amount * 1e9));
+            
+            // Create updated instruction data with new amount
+            const updatedInstructionData = this.createUpdatedInstructionData(originalInstructionData, amountLamports);
 
-                if (priceChange >= 100) {
-                    const error = `Price has moved too much (${priceChange.toFixed(2)}%). Skipping trade.`;
-                    logger.logWarning('dex', 'Trade skipped due to price movement', error);
-                    throw new Error(error);
-                }
-            }
-
-            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
-            const wallet = walletManager.getCurrentWallet();
-
-            // Get quote from Jupiter
-            const quoteParams = new URLSearchParams({
-                inputMint: 'So11111111111111111111111111111111111111112', // SOL
-                outputMint: tokenAddress,
-                amount: Math.floor(amount * 1e9).toString(), // Convert SOL to lamports
-                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
-                onlyDirectRoutes: 'false',
-                asLegacyTransaction: 'false' // Use versioned transactions
+            // Create transaction instruction
+            const instruction = new TransactionInstruction({
+                programId: PUMP_FUN_PROGRAM_ID,
+                keys: this.convertToAccountMeta(webhookData.accounts, true),
+                data: updatedInstructionData
             });
 
-            const quoteResponse = await this.rateLimitedFetch(
-                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
-                {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                }
-            );
+            // Create and send transaction
+            const transaction = new Transaction();
+            transaction.add(instruction);
             
-            const quote = await quoteResponse.json();
-            
-            if (!quote.outAmount || !quote.inAmount) {
-                console.error('Debug - Invalid Quote Response:', quote);
-                throw new Error('Invalid quote received from Jupiter');
-            }
+            // Add priority fee
+            transaction.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+            transaction.feePayer = walletManager.getPublicKey();
 
-            // Get swap transaction with optimized settings for speed
-            swapBody = {
-                userPublicKey: walletManager.getPublicKey().toString(),
-                quoteResponse: quote,
-                // Add high priority fee to get transaction processed faster
-                prioritizationFeeLamports: {
-                    priorityLevelWithMaxLamports: {
-                        maxLamports: TRANSACTION_CONFIG.priorityFee,
-                        priorityLevel: "veryHigh"
-                    }
-                },
-                // Optimize compute unit settings
-                dynamicComputeUnitLimit: true,
-                // Use legacy transaction for faster processing
-                asLegacyTransaction: true,
-                // Skip token account creation if possible
-                skipUserAccountsCheck: true
-            };
+            logger.logInfo('dex', 'Pump.fun transaction prepared', 'Executing transaction');
 
-            console.log('Debug - Swap Request:', {
-                url: 'https://quote-api.jup.ag/v6/swap',
-                body: swapBody
-            });
-
-            const swapResponse = await this.rateLimitedFetch(
-                'https://quote-api.jup.ag/v6/swap',
-                {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(swapBody)
-                }
-            );
-            
-            const swapTransaction = await swapResponse.json();
-            
-            if (!swapTransaction.swapTransaction) {
-                console.error('Debug - Invalid Swap Response:', swapTransaction);
-                throw new Error('Invalid swap transaction received from Jupiter');
-            }
-
-            logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
-            
-            // Decode and execute the swap using VersionedTransaction
-            const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
-            const transaction = VersionedTransaction.deserialize(transactionBuffer);
-            
-            // Execute the swap with retry logic
+            // Execute transaction with retry logic
             let retries = 0;
             while (retries < TRANSACTION_CONFIG.maxRetries) {
                 try {
-                    // Send transaction with high priority
                     const signature = await walletManager.signAndSendTransaction(transaction);
-                    logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
+                    logger.logTransaction(signature, webhookData.outputMint, amount.toString(), 'success');
+                    logger.logInfo('dex', 'Pump.fun swap successful', `Signature: ${signature}`);
                     return signature;
                 } catch (error: any) {
                     if (error.message.includes('0x1771') && retries < TRANSACTION_CONFIG.maxRetries - 1) {
                         retries++;
-                        await new Promise(resolve => setTimeout(resolve, 50)); // Reduced delay for faster retry
+                        await new Promise(resolve => setTimeout(resolve, 50));
                         continue;
                     }
                     throw error;
                 }
             }
             
-            throw new Error('Max retries exceeded for swap execution');
+            throw new Error('Max retries exceeded for Pump.fun swap execution');
         } catch (error: any) {
-            console.error('Debug - Swap Error:', {
-                error: error.message,
-                tokenAddress,
-                amount,
-                status: error.status,
-                response: error.response,
-                logs: error.logs,
-                requestBody: {
-                    quote: quoteBody,
-                    swap: swapBody
-                }
-            });
-            const errorMessage = error.message || 'Unknown error';
-            logger.logTransaction('pending', tokenAddress, amount.toString(), 'failed', errorMessage);
+            logger.logError('dex', 'Pump.fun swap failed', error.message);
+            logger.logTransaction('pending', webhookData.outputMint, amount.toString(), 'failed', error.message);
             throw error;
         }
     }
 
-    public async calculatePriceImpact(
-        tokenAddress: string,
-        amount: number
-    ): Promise<number> {
+    /**
+     * Process webhook data and execute swap
+     */
+    async processWebhookAndSwap(webhookData: PumpFunWebhook, amount?: number): Promise<string> {
         try {
-            // For devnet testing, simulate a price impact
-            // This is a simplified model - in production, you'd use real DEX data
-            const simulatedLiquidity = 1000; // Simulated liquidity in SOL
-            const priceImpact = (amount / simulatedLiquidity) * 100;
+            // If amount not provided, use the amount from webhook
+            const swapAmount = amount || parseFloat(webhookData.amount) / 1e9; // Convert from lamports to SOL
             
-            logger.logInfo('dex', 'Price impact calculated', 
-                `Token: ${tokenAddress}, Amount: ${amount} SOL, Impact: ${priceImpact.toFixed(2)}%`
+            logger.logInfo('dex', 'Processing webhook for swap', 
+                `Input: ${webhookData.inputMint}, Output: ${webhookData.outputMint}, Amount: ${swapAmount} SOL`
             );
-            
-            return priceImpact;
+
+            return await this.executePumpFunSwap(webhookData, swapAmount);
         } catch (error: any) {
-            logger.logError('dex', 'Error calculating price impact', error.message);
+            logger.logError('dex', 'Failed to process webhook and swap', error.message);
             throw error;
         }
     }
 
-    async sellToken(tokenAddress: string, tokenAmount: number): Promise<string> {
+    /**
+     * Get token price (simplified for Pump.fun - would need real implementation)
+     */
+    async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
-            // Check balance before selling
-            const balance = await this.getTokenBalance(tokenAddress);
-            if (balance < tokenAmount) {
-                throw new Error(`Insufficient balance. Have: ${balance}, Trying to sell: ${tokenAmount}`);
+            // For Pump.fun, we would need to implement price calculation based on bonding curve
+            // This is a placeholder implementation
+            logger.logInfo('dex', 'Getting token price', `Token: ${tokenAddress}`);
+            
+            // Placeholder: return a simulated price
+            return 0.001; // 0.001 SOL per token
+        } catch (error: any) {
+            logger.logError('dex', 'Failed to get token price', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Check liquidity (simplified for Pump.fun)
+     */
+    async checkLiquidity(tokenAddress: string): Promise<boolean> {
+        try {
+            // For Pump.fun, liquidity is determined by the bonding curve
+            // This is a placeholder implementation
+            logger.logInfo('dex', 'Checking liquidity', `Token: ${tokenAddress}`);
+            return true; // Assume sufficient liquidity
+        } catch (error: any) {
+            logger.logError('dex', 'Error checking liquidity', error.message);
+            return true;
+        }
+    }
+
+    /**
+     * Execute swap (main entry point - now uses Pump.fun)
+     */
+    async executeSwap(tokenAddress: string, amount: number, originalPrice?: number): Promise<string> {
+        try {
+            logger.logInfo('dex', 'Executing swap with Pump.fun', 
+                `Token: ${tokenAddress}, Amount: ${amount} SOL`
+            );
+
+            // Check wallet balance
+            const balance = await walletManager.getBalance();
+            const requiredBalance = amount + TRANSACTION_CONFIG.minSolBalance;
+            
+            if (balance < requiredBalance) {
+                const error = `Insufficient balance. Have: ${balance} SOL, Need: ${requiredBalance} SOL`;
+                logger.logError('dex', 'Insufficient balance for swap', error);
+                throw new Error(error);
             }
 
-            logger.logInfo('dex', 'Executing sell', 
+            // For Pump.fun, we need webhook data to execute swaps
+            // This is a placeholder - in real implementation, you would receive webhook data
+            throw new Error('Pump.fun swaps require webhook data. Use processWebhookAndSwap() instead.');
+        } catch (error: any) {
+            logger.logError('dex', 'Swap execution failed', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Sell token using Pump.fun (would need webhook data)
+     */
+    async sellToken(tokenAddress: string, tokenAmount: number): Promise<string> {
+        try {
+            logger.logInfo('dex', 'Selling token with Pump.fun', 
                 `Token: ${tokenAddress}, Amount: ${tokenAmount} tokens`
             );
 
-            const mintInfo = await getMint(walletManager.getConnection(), new PublicKey(tokenAddress));
-            const amountRaw = Math.floor(tokenAmount * Math.pow(10, mintInfo.decimals)).toString();
-
-            // Get quote from Jupiter (use GET, not POST)
-            const quoteParams = new URLSearchParams({
-                inputMint: tokenAddress,
-                outputMint: 'So11111111111111111111111111111111111111112', // SOL
-                amount: amountRaw,
-                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
-                onlyDirectRoutes: 'false',
-                asLegacyTransaction: 'false'
-            });
-            const quoteResponse = await this.rateLimitedFetch(
-                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
-                {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                }
-            );
-            
-            const quote = await quoteResponse.json();
-            logger.logInfo('dex', 'Sell quote received', JSON.stringify(quote, null, 2));
-            
-            // Validate quote
-            if (!quote.outAmount || !quote.inAmount) {
-                throw new Error('Invalid quote received from Jupiter');
+            // Check token balance
+            const balance = await this.getTokenBalance(tokenAddress);
+            if (balance < tokenAmount) {
+                throw new Error(`Insufficient token balance. Have: ${balance}, Trying to sell: ${tokenAmount}`);
             }
 
-            // Get swap transaction
-            const swapResponse = await this.rateLimitedFetch(
-                'https://quote-api.jup.ag/v6/swap',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        quoteResponse: quote,
-                        userPublicKey: walletManager.getPublicKey().toString(),
-                        wrapUnwrapSOL: true,
-                        computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
-                        computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
-                        asLegacyTransaction: true
-                    })
-                }
-            );
-            
-            const swapTransaction = await swapResponse.json();
-            
-            if (!swapTransaction.swapTransaction) {
-                throw new Error('Invalid swap transaction received from Jupiter');
-            }
-
-            logger.logInfo('dex', 'Sell transaction prepared', 'Executing transaction');
-            
-            // Decode and execute the swap using VersionedTransaction
-            const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
-            const transaction = VersionedTransaction.deserialize(transactionBuffer);
-            
-            // Execute the swap
-            const signature = await walletManager.signAndSendTransaction(transaction);
-            
-            logger.logTransaction(signature, tokenAddress, tokenAmount.toString(), 'success');
-            return signature;
+            // For Pump.fun, selling also requires webhook data
+            throw new Error('Pump.fun sells require webhook data. Use processWebhookAndSwap() instead.');
         } catch (error: any) {
-            logger.logTransaction('pending', tokenAddress, tokenAmount.toString(), 'failed', error.message);
+            logger.logError('dex', 'Token sell failed', error.message);
             throw error;
         }
     }
 
+    /**
+     * Get token balance
+     */
     async getTokenBalance(tokenAddress: string): Promise<number> {
         try {
             const owner = walletManager.getPublicKey();
@@ -479,38 +308,25 @@ class DexManager {
         }
     }
 
+    /**
+     * Calculate expected return (simplified for Pump.fun)
+     */
     async calculateExpectedReturn(tokenAddress: string, tokenAmount: number): Promise<{
         expectedSol: number;
         priceImpact: number;
         minimumReceived: number;
     }> {
         try {
-            const mintInfo = await getMint(walletManager.getConnection(), new PublicKey(tokenAddress));
-            const amountRaw = Math.floor(tokenAmount * Math.pow(10, mintInfo.decimals)).toString();
-            const quoteParams = new URLSearchParams({
-                inputMint: tokenAddress,
-                outputMint: 'So11111111111111111111111111111111111111112',
-                amount: amountRaw,
-                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
-                onlyDirectRoutes: 'false',
-                asLegacyTransaction: 'false'
-            });
-            const quoteResponse = await this.rateLimitedFetch(
-                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
-                {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                }
-            );
-            
-            const quote = await quoteResponse.json();
+            // For Pump.fun, this would need to be calculated based on the bonding curve
+            // This is a placeholder implementation
             const priceImpact = await this.calculatePriceImpact(tokenAddress, tokenAmount);
-            const minimumReceived = quote.outAmount * (1 - TRANSACTION_CONFIG.maxSlippage);
+            const expectedSol = tokenAmount * 0.001; // Placeholder price
+            const minimumReceived = expectedSol * (1 - TRANSACTION_CONFIG.maxSlippage);
             
             return {
-                expectedSol: quote.outAmount / 1e9, // Convert lamports to SOL
+                expectedSol,
                 priceImpact,
-                minimumReceived: minimumReceived / 1e9
+                minimumReceived
             };
         } catch (error: any) {
             logger.logError('dex', 'Error calculating expected return', error.message);
@@ -518,6 +334,30 @@ class DexManager {
         }
     }
 
+    /**
+     * Calculate price impact (simplified for Pump.fun)
+     */
+    async calculatePriceImpact(tokenAddress: string, amount: number): Promise<number> {
+        try {
+            // For Pump.fun, price impact is determined by the bonding curve
+            // This is a simplified model
+            const simulatedLiquidity = 1000; // Simulated liquidity in SOL
+            const priceImpact = (amount / simulatedLiquidity) * 100;
+            
+            logger.logInfo('dex', 'Price impact calculated', 
+                `Token: ${tokenAddress}, Amount: ${amount} SOL, Impact: ${priceImpact.toFixed(2)}%`
+            );
+            
+            return priceImpact;
+        } catch (error: any) {
+            logger.logError('dex', 'Error calculating price impact', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Sell percentage of holdings
+     */
     async sellPercentageOfHoldings(tokenAddress: string, percentage: number): Promise<string> {
         try {
             if (percentage <= 0 || percentage > 100) {
@@ -531,9 +371,8 @@ class DexManager {
                 throw new Error('No tokens available to sell');
             }
 
-            const expectedReturn = await this.calculateExpectedReturn(tokenAddress, amountToSell);
             logger.logInfo('dex', 'Selling percentage of holdings', 
-                `Token: ${tokenAddress}, Percentage: ${percentage}%, Amount: ${amountToSell}, Expected SOL: ${expectedReturn.expectedSol}`
+                `Token: ${tokenAddress}, Percentage: ${percentage}%, Amount: ${amountToSell}`
             );
 
             return await this.sellToken(tokenAddress, amountToSell);
