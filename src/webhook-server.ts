@@ -37,9 +37,11 @@ app.post('/webhook/pump-fun', async (req: Request, res: Response) => {
         const webhookData: PumpFunWebhook = req.body;
         
         if (!webhookData) {
-            logger.logError('webhook', 'No webhook data received', 'Empty request body');
-            return res.status(400).json({ 
-                error: 'No webhook data received',
+            logger.logWarning('webhook', 'No webhook data received', 'Empty request body');
+            // Return 200 OK to stop retry loop
+            return res.status(200).json({ 
+                success: false,
+                message: 'No webhook data received',
                 timestamp: new Date().toISOString()
             });
         }
@@ -51,9 +53,11 @@ app.post('/webhook/pump-fun', async (req: Request, res: Response) => {
         if (!webhookData.amount) missingFields.push('amount');
         
         if (missingFields.length > 0) {
-            logger.logError('webhook', 'Invalid webhook data', `Missing required fields: ${missingFields.join(', ')}`);
-            return res.status(400).json({ 
-                error: `Invalid webhook data - missing required fields: ${missingFields.join(', ')}`,
+            logger.logWarning('webhook', 'Invalid webhook data', `Missing required fields: ${missingFields.join(', ')}`);
+            // Return 200 OK to stop retry loop, but log the issue
+            return res.status(200).json({ 
+                success: false,
+                message: `Webhook received but missing required fields: ${missingFields.join(', ')}`,
                 receivedFields: Object.keys(webhookData),
                 timestamp: new Date().toISOString()
             });
@@ -221,30 +225,18 @@ app.post('/webhook', async (req: Request, res: Response) => {
         // Log the entire webhook payload
         logger.logInfo('webhook', 'Generic webhook payload', JSON.stringify(req.body, null, 2));
         
-        // Check if it's a Pump.fun webhook
-        if (req.body.programId === 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61') {
-            logger.logInfo('webhook', 'Pump.fun webhook detected', 'Redirecting to pump-fun endpoint');
-            // Forward to the pump-fun endpoint
-            return app._router.handle(req, res, () => {
-                // If forwarding fails, return success anyway
-                res.status(200).json({
-                    success: true,
-                    message: 'Pump.fun webhook received and processed',
-                    timestamp: new Date().toISOString()
-                });
-            });
-        }
-        
+        // Always return 200 OK to stop retry loops
         res.status(200).json({
             success: true,
-            message: 'Generic webhook received',
+            message: 'Webhook received successfully',
             timestamp: new Date().toISOString()
         });
     } catch (error: any) {
         logger.logError('webhook', 'Generic webhook error', error.message);
-        res.status(500).json({
+        // Even on error, return 200 to stop retries
+        res.status(200).json({
             success: false,
-            error: error.message,
+            message: 'Webhook received but had processing error',
             timestamp: new Date().toISOString()
         });
     }
