@@ -48,7 +48,7 @@ describe('Pump.fun DEX Manager', () => {
                 programId: 'invalid-program-id'
             };
 
-            await expect(dexManager.processWebhookAndSwap(invalidWebhook, 0.1))
+            await expect(dexManager.processLeaderBuyWebhook(invalidWebhook, 0.1))
                 .rejects.toThrow('Invalid Pump.fun program ID');
         });
     });

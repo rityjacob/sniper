@@ -25,7 +25,7 @@ async function pumpFunExample() {
         };
 
         // Process the webhook and execute swap
-        const signature = await dexManager.processWebhookAndSwap(webhookData, 0.1); // 0.1 SOL
+        const signature = await dexManager.processLeaderBuyWebhook(webhookData, 0.1); // 0.1 SOL
         
         logger.logInfo('example', 'Swap completed successfully', `Signature: ${signature}`);
         

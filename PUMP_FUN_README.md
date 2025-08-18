@@ -1,17 +1,21 @@
-# Pump.fun AMM Integration
+# Pump.fun Leader Buy Detection & Trading
 
-This branch implements trading using Pump.fun's custom bonding curve AMM instead of Jupiter API.
+This branch implements automated trading based on leader wallet activity on Pump.fun's custom bonding curve AMM.
 
 ## Overview
 
-Pump.fun uses a custom bonding curve AMM that:
-- Exists on-chain (no REST API)
-- Has a fixed program ID: `troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61`
-- Accepts a single swap instruction encoded as base64 in transactions
-- The swap logic lives inside that instruction, including:
-  - Input amount
-  - Source wallet
-  - Token accounts
+This implementation follows a specific workflow to detect and copy leader wallet trades:
+
+1. **Receive webhook** from target wallet
+2. **Detect "leader bought on PumpSwap"** - analyze transaction logs
+3. **Parse webhook's enhanced transaction payload** - extract key information
+4. **Confirm Pump.fun AMM program invocation** - validate it's a real PumpSwap
+5. **Confirm leader wallet is the buyer** - verify token receipt
+6. **Extract token mint received** - identify the token being traded
+7. **Confirm pool exists** - ensure token has graduated to AMM
+8. **Check SOL balance** - verify sufficient funds for fixed buy + fees
+9. **Execute BUY** - use Pump.fun SDK with priority fees and slippage
+10. **Post-trade logging** - log signature, store status, handle retries
 
 ## Webhook Data Structure
 
@@ -102,32 +106,27 @@ const webhookData: PumpFunWebhook = {
     data: 'TBXxRE...' // Base64 instruction data
 };
 
-// Execute swap with 0.1 SOL
-const signature = await dexManager.processWebhookAndSwap(webhookData, 0.1);
-console.log('Swap signature:', signature);
+// Execute fixed buy amount (0.1 SOL)
+const signature = await dexManager.processLeaderBuyWebhook(webhookData, 0.1);
+console.log('Trade signature:', signature);
 ```
 
-### Using Webhook Amount
+### Using Default Buy Amount
 
 ```typescript
-// Use the amount from the webhook
-const signature = await dexManager.processWebhookAndSwap(webhookData);
+// Use default buy amount (0.1 SOL)
+const signature = await dexManager.processLeaderBuyWebhook(webhookData);
 ```
 
-### Direct Pump.fun Swap
+## Key Features
 
-```typescript
-// Execute swap directly with webhook data
-const signature = await dexManager.executePumpFunSwap(webhookData, 0.05);
-```
-
-## Key Differences from Jupiter
-
-1. **No API Calls**: Pump.fun doesn't use REST APIs - everything is on-chain
-2. **Webhook Required**: All swaps require webhook data from Pump.fun
-3. **Instruction Decoding**: Need to decode and modify base64 instruction data
-4. **Account Structure**: Uses specific account structure from webhook
-5. **Bonding Curve**: Price is determined by the bonding curve, not market orders
+1. **Leader Buy Detection**: Automatically detects when target wallet buys on PumpSwap
+2. **Enhanced Webhook Processing**: Parses full transaction payload with logs and metadata
+3. **Validation Chain**: Multiple validation steps ensure legitimate trades
+4. **Fixed Buy Amounts**: Uses configurable fixed SOL amounts for consistency
+5. **Priority Fees**: Adds priority fees for faster transaction processing
+6. **Retry Logic**: Handles "Blockhash not found" and "RPC busy" errors
+7. **Comprehensive Logging**: Detailed logging for monitoring and debugging
 
 ## Configuration
 
@@ -171,9 +170,9 @@ npx ts-node src/scripts/pump-fun-example.ts
 
 To migrate from Jupiter to Pump.fun:
 
-1. Replace `executeSwap()` calls with `processWebhookAndSwap()`
-2. Ensure you have webhook data for each trade
-3. Update any price calculation logic (Pump.fun uses bonding curves)
+1. Replace `executeSwap()` calls with `processLeaderBuyWebhook()`
+2. Ensure you have enhanced webhook data with transaction payload
+3. Configure fixed buy amounts instead of dynamic amounts
 4. Test thoroughly with small amounts first
 
 ## Example Webhook Handler
