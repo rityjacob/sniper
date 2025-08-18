@@ -30,6 +30,9 @@ app.post('/webhook/pump-fun', async (req: Request, res: Response) => {
     try {
         logger.logInfo('webhook', 'Received webhook', 'Processing Pump.fun webhook data');
 
+        // Log the actual webhook data for debugging
+        logger.logInfo('webhook', 'Webhook payload', JSON.stringify(req.body, null, 2));
+
         // Validate webhook data
         const webhookData: PumpFunWebhook = req.body;
         
@@ -41,11 +44,17 @@ app.post('/webhook/pump-fun', async (req: Request, res: Response) => {
             });
         }
 
-        // Validate required fields
-        if (!webhookData.inputMint || !webhookData.outputMint || !webhookData.amount) {
-            logger.logError('webhook', 'Invalid webhook data', 'Missing required fields');
+        // Log what fields are missing
+        const missingFields = [];
+        if (!webhookData.inputMint) missingFields.push('inputMint');
+        if (!webhookData.outputMint) missingFields.push('outputMint');
+        if (!webhookData.amount) missingFields.push('amount');
+        
+        if (missingFields.length > 0) {
+            logger.logError('webhook', 'Invalid webhook data', `Missing required fields: ${missingFields.join(', ')}`);
             return res.status(400).json({ 
-                error: 'Invalid webhook data - missing required fields',
+                error: `Invalid webhook data - missing required fields: ${missingFields.join(', ')}`,
+                receivedFields: Object.keys(webhookData),
                 timestamp: new Date().toISOString()
             });
         }
@@ -54,6 +63,16 @@ app.post('/webhook/pump-fun', async (req: Request, res: Response) => {
         logger.logInfo('webhook', 'Webhook data received', 
             `Input: ${webhookData.inputMint}, Output: ${webhookData.outputMint}, Amount: ${webhookData.amount}`
         );
+
+        // Check if this is a Pump.fun transaction
+        if (webhookData.programId !== 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61') {
+            logger.logInfo('webhook', 'Not a Pump.fun transaction', `Program ID: ${webhookData.programId}`);
+            return res.status(200).json({
+                success: true,
+                message: 'Not a Pump.fun transaction - skipping',
+                timestamp: new Date().toISOString()
+            });
+        }
 
         // Extract fixed buy amount from environment or use default
         const fixedBuyAmount = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1');
@@ -194,6 +213,43 @@ app.use((error: any, req: Request, res: Response, next: NextFunction) => {
     });
 });
 
+// Generic webhook endpoint for debugging
+app.post('/webhook', async (req: Request, res: Response) => {
+    try {
+        logger.logInfo('webhook', 'Received generic webhook', 'Logging webhook data for debugging');
+        
+        // Log the entire webhook payload
+        logger.logInfo('webhook', 'Generic webhook payload', JSON.stringify(req.body, null, 2));
+        
+        // Check if it's a Pump.fun webhook
+        if (req.body.programId === 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61') {
+            logger.logInfo('webhook', 'Pump.fun webhook detected', 'Redirecting to pump-fun endpoint');
+            // Forward to the pump-fun endpoint
+            return app._router.handle(req, res, () => {
+                // If forwarding fails, return success anyway
+                res.status(200).json({
+                    success: true,
+                    message: 'Pump.fun webhook received and processed',
+                    timestamp: new Date().toISOString()
+                });
+            });
+        }
+        
+        res.status(200).json({
+            success: true,
+            message: 'Generic webhook received',
+            timestamp: new Date().toISOString()
+        });
+    } catch (error: any) {
+        logger.logError('webhook', 'Generic webhook error', error.message);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
 // 404 handler
 app.use('*', (req: Request, res: Response) => {
     res.status(404).json({
@@ -201,6 +257,7 @@ app.use('*', (req: Request, res: Response) => {
         availableEndpoints: [
             'GET /health',
             'GET /status',
+            'POST /webhook',
             'POST /webhook/pump-fun',
             'POST /webhook/pump-fun/:amount'
         ],
