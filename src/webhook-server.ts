@@ -33,26 +33,52 @@ app.post('/webhook', async (req: Request, res: Response) => {
         // Log the actual webhook data for debugging
         logger.logInfo('webhook', 'Webhook payload', JSON.stringify(req.body, null, 2));
 
-        // Validate webhook data
-        if (!req.body || !Array.isArray(req.body)) {
-            logger.logWarning('webhook', 'Invalid webhook format', 'Expected array of transactions');
+        // Validate webhook data - handle both array and single transaction formats
+        let transactions = [];
+        if (Array.isArray(req.body)) {
+            transactions = req.body;
+        } else if (req.body) {
+            // Single transaction object
+            transactions = [req.body];
+        } else {
+            logger.logWarning('webhook', 'Invalid webhook format', 'No transaction data received');
             return res.status(200).json({ 
                 success: false,
-                message: 'Invalid webhook format - expected array of transactions',
+                message: 'Invalid webhook format - no transaction data received',
                 timestamp: new Date().toISOString()
             });
         }
 
-        const transactions = req.body;
         logger.logInfo('webhook', 'Processing transactions', `Received ${transactions.length} transaction(s)`);
+        logger.logInfo('webhook', 'Raw webhook data', JSON.stringify(req.body, null, 2));
 
         let processedCount = 0;
         let pumpFunCount = 0;
 
         for (const tx of transactions) {
             try {
-                // Check if this is a Pump.fun transaction
-                if (tx.type === 'SWAP' && tx.programId === 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61') {
+                // Log ALL transactions for debugging
+                logger.logInfo('webhook', 'Transaction received', 
+                    `Type: ${tx.type || 'unknown'}, Program: ${tx.programId || 'unknown'}, Signature: ${tx.signature?.slice(0, 8) || 'unknown'}...`
+                );
+                
+                // Check if this is a Pump.fun transaction - look for the program ID in various places
+                const isPumpFun = tx.programId === 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61' || 
+                                 (tx.instructions && tx.instructions.some((inst: any) => 
+                                     inst.programId === 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61'
+                                 )) ||
+                                 (tx.instructions && tx.instructions.some((inst: any) => 
+                                     inst.innerInstructions && inst.innerInstructions.some((innerInst: any) => 
+                                         innerInst.programId === 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61'
+                                     )
+                                 ));
+                
+                // Log transaction details for debugging
+                logger.logInfo('webhook', 'Transaction analysis', 
+                    `Type: ${tx.type}, Program: ${tx.programId}, IsPumpFun: ${isPumpFun}, TokenTransfers: ${tx.tokenTransfers?.length || 0}, NativeTransfers: ${tx.nativeTransfers?.length || 0}`
+                );
+                
+                if (tx.type === 'SWAP' && isPumpFun) {
                     pumpFunCount++;
                     
                     logger.logInfo('webhook', 'Pump.fun SWAP detected', 
@@ -67,9 +93,9 @@ app.post('/webhook', async (req: Request, res: Response) => {
                         programId: tx.programId,
                         signature: tx.signature,
                         slot: tx.slot,
-                        blockTime: tx.blockTime,
-                        accounts: tx.accountData || [],
-                        data: tx.rawTransaction || ''
+                        blockTime: tx.timestamp,
+                        accounts: tx.accountData?.map((acc: any) => acc.account) || [],
+                        data: tx.instructions?.[0]?.data || ''
                     };
 
                     // Extract fixed buy amount from environment or use default
@@ -87,7 +113,7 @@ app.post('/webhook', async (req: Request, res: Response) => {
                     );
                 } else {
                     logger.logInfo('webhook', 'Non-Pump.fun transaction', 
-                        `Type: ${tx.type}, Program: ${tx.programId}`
+                        `Type: ${tx.type}, Program: ${tx.programId}, Description: ${tx.description || 'N/A'}`
                     );
                 }
                 
