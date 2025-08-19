@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 
-const WEBHOOK_URL = 'http://localhost:3000/webhook/pump-fun';
+const WEBHOOK_URL = 'http://localhost:3000/webhook';
 
 // Sample webhook data for testing
 const testWebhookData = {

@@ -25,85 +25,89 @@ app.get('/health', (req: Request, res: Response) => {
     });
 });
 
-// Webhook endpoint for Pump.fun leader buy detection
-app.post('/webhook/pump-fun', async (req: Request, res: Response) => {
+// Main webhook endpoint for Helius enhanced webhooks
+app.post('/webhook', async (req: Request, res: Response) => {
     try {
-        logger.logInfo('webhook', 'Received webhook', 'Processing Pump.fun webhook data');
+        logger.logInfo('webhook', 'Received Helius webhook', 'Processing enhanced webhook data');
 
         // Log the actual webhook data for debugging
         logger.logInfo('webhook', 'Webhook payload', JSON.stringify(req.body, null, 2));
 
         // Validate webhook data
-        const webhookData: PumpFunWebhook = req.body;
-        
-        if (!webhookData) {
-            logger.logWarning('webhook', 'No webhook data received', 'Empty request body');
-            // Return 200 OK to stop retry loop
+        if (!req.body || !Array.isArray(req.body)) {
+            logger.logWarning('webhook', 'Invalid webhook format', 'Expected array of transactions');
             return res.status(200).json({ 
                 success: false,
-                message: 'No webhook data received',
+                message: 'Invalid webhook format - expected array of transactions',
                 timestamp: new Date().toISOString()
             });
         }
 
-        // Log what fields are missing
-        const missingFields = [];
-        if (!webhookData.inputMint) missingFields.push('inputMint');
-        if (!webhookData.outputMint) missingFields.push('outputMint');
-        if (!webhookData.amount) missingFields.push('amount');
-        
-        if (missingFields.length > 0) {
-            logger.logWarning('webhook', 'Invalid webhook data', `Missing required fields: ${missingFields.join(', ')}`);
-            // Return 200 OK to stop retry loop, but log the issue
-            return res.status(200).json({ 
-                success: false,
-                message: `Webhook received but missing required fields: ${missingFields.join(', ')}`,
-                receivedFields: Object.keys(webhookData),
-                timestamp: new Date().toISOString()
-            });
+        const transactions = req.body;
+        logger.logInfo('webhook', 'Processing transactions', `Received ${transactions.length} transaction(s)`);
+
+        let processedCount = 0;
+        let pumpFunCount = 0;
+
+        for (const tx of transactions) {
+            try {
+                // Check if this is a Pump.fun transaction
+                if (tx.type === 'SWAP' && tx.programId === 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61') {
+                    pumpFunCount++;
+                    
+                    logger.logInfo('webhook', 'Pump.fun SWAP detected', 
+                        `Token: ${tx.tokenTransfers?.[0]?.mint || 'unknown'}, Amount: ${tx.nativeTransfers?.[0]?.amount || 'unknown'}`
+                    );
+
+                    // Extract transaction details
+                    const webhookData = {
+                        inputMint: tx.nativeTransfers?.[0]?.fromUserAccount || 'So11111111111111111111111111111111111111112',
+                        outputMint: tx.tokenTransfers?.[0]?.mint || '',
+                        amount: tx.nativeTransfers?.[0]?.amount || '0',
+                        programId: tx.programId,
+                        signature: tx.signature,
+                        slot: tx.slot,
+                        blockTime: tx.blockTime,
+                        accounts: tx.accountData || [],
+                        data: tx.rawTransaction || ''
+                    };
+
+                    // Extract fixed buy amount from environment or use default
+                    const fixedBuyAmount = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1');
+                    
+                    logger.logInfo('webhook', 'Executing Pump.fun trade', 
+                        `Fixed buy amount: ${fixedBuyAmount} SOL, Token: ${webhookData.outputMint}`
+                    );
+
+                    // Process the webhook and execute trade
+                    const signature = await dexManager.processLeaderBuyWebhook(webhookData, fixedBuyAmount);
+                    
+                    logger.logInfo('webhook', 'Pump.fun trade completed', 
+                        `Signature: ${signature}, Token: ${webhookData.outputMint}`
+                    );
+                } else {
+                    logger.logInfo('webhook', 'Non-Pump.fun transaction', 
+                        `Type: ${tx.type}, Program: ${tx.programId}`
+                    );
+                }
+                
+                processedCount++;
+            } catch (error: any) {
+                logger.logError('webhook', 'Transaction processing failed', error.message);
+            }
         }
-
-        // Log webhook details
-        logger.logInfo('webhook', 'Webhook data received', 
-            `Input: ${webhookData.inputMint}, Output: ${webhookData.outputMint}, Amount: ${webhookData.amount}`
-        );
-
-        // Check if this is a Pump.fun transaction
-        if (webhookData.programId !== 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61') {
-            logger.logInfo('webhook', 'Not a Pump.fun transaction', `Program ID: ${webhookData.programId}`);
-            return res.status(200).json({
-                success: true,
-                message: 'Not a Pump.fun transaction - skipping',
-                timestamp: new Date().toISOString()
-            });
-        }
-
-        // Extract fixed buy amount from environment or use default
-        const fixedBuyAmount = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1');
-        
-        logger.logInfo('webhook', 'Executing trade', 
-            `Fixed buy amount: ${fixedBuyAmount} SOL`
-        );
-
-        // Process the webhook and execute trade
-        const signature = await dexManager.processLeaderBuyWebhook(webhookData, fixedBuyAmount);
 
         // Return success response
         res.status(200).json({
             success: true,
-            signature: signature,
-            message: 'Trade executed successfully',
+            message: `Processed ${processedCount} transaction(s), ${pumpFunCount} Pump.fun SWAP(s)`,
             timestamp: new Date().toISOString(),
-            tradeDetails: {
-                tokenMint: webhookData.outputMint,
-                amount: fixedBuyAmount,
-                signature: signature
+            summary: {
+                totalTransactions: transactions.length,
+                processedTransactions: processedCount,
+                pumpFunSwaps: pumpFunCount
             }
         });
-
-        logger.logInfo('webhook', 'Trade completed', 
-            `Signature: ${signature}, Token: ${webhookData.outputMint}`
-        );
 
     } catch (error: any) {
         logger.logError('webhook', 'Webhook processing failed', error.message);
@@ -112,75 +116,12 @@ app.post('/webhook/pump-fun', async (req: Request, res: Response) => {
         res.status(500).json({
             success: false,
             error: error.message,
-            timestamp: new Date().toISOString(),
-            details: {
-                inputMint: req.body?.inputMint,
-                outputMint: req.body?.outputMint,
-                amount: req.body?.amount
-            }
-        });
-    }
-});
-
-// Webhook endpoint with custom buy amount
-app.post('/webhook/pump-fun/:amount', async (req: Request, res: Response) => {
-    try {
-        logger.logInfo('webhook', 'Received webhook with custom amount', 'Processing Pump.fun webhook data');
-
-        const webhookData: PumpFunWebhook = req.body;
-        const customAmount = parseFloat(req.params.amount);
-
-        if (isNaN(customAmount) || customAmount <= 0) {
-            logger.logError('webhook', 'Invalid custom amount', `Amount: ${req.params.amount}`);
-            return res.status(400).json({ 
-                error: 'Invalid custom amount',
-                timestamp: new Date().toISOString()
-            });
-        }
-
-        // Validate webhook data
-        if (!webhookData || !webhookData.inputMint || !webhookData.outputMint || !webhookData.amount) {
-            logger.logError('webhook', 'Invalid webhook data', 'Missing required fields');
-            return res.status(400).json({ 
-                error: 'Invalid webhook data - missing required fields',
-                timestamp: new Date().toISOString()
-            });
-        }
-
-        logger.logInfo('webhook', 'Executing trade with custom amount', 
-            `Custom amount: ${customAmount} SOL`
-        );
-
-        // Process the webhook and execute trade
-        const signature = await dexManager.processLeaderBuyWebhook(webhookData, customAmount);
-
-        // Return success response
-        res.status(200).json({
-            success: true,
-            signature: signature,
-            message: 'Trade executed successfully',
-            timestamp: new Date().toISOString(),
-            tradeDetails: {
-                tokenMint: webhookData.outputMint,
-                amount: customAmount,
-                signature: signature
-            }
-        });
-
-        logger.logInfo('webhook', 'Trade completed with custom amount', 
-            `Signature: ${signature}, Amount: ${customAmount} SOL`
-        );
-
-    } catch (error: any) {
-        logger.logError('webhook', 'Webhook processing failed', error.message);
-        
-        res.status(500).json({
-            success: false,
-            error: error.message,
             timestamp: new Date().toISOString()
         });
     }
 });
+
+
 
 // Status endpoint to check bot status
 app.get('/status', async (req: Request, res: Response) => {
@@ -217,30 +158,7 @@ app.use((error: any, req: Request, res: Response, next: NextFunction) => {
     });
 });
 
-// Generic webhook endpoint for debugging
-app.post('/webhook', async (req: Request, res: Response) => {
-    try {
-        logger.logInfo('webhook', 'Received generic webhook', 'Logging webhook data for debugging');
-        
-        // Log the entire webhook payload
-        logger.logInfo('webhook', 'Generic webhook payload', JSON.stringify(req.body, null, 2));
-        
-        // Always return 200 OK to stop retry loops
-        res.status(200).json({
-            success: true,
-            message: 'Webhook received successfully',
-            timestamp: new Date().toISOString()
-        });
-    } catch (error: any) {
-        logger.logError('webhook', 'Generic webhook error', error.message);
-        // Even on error, return 200 to stop retries
-        res.status(200).json({
-            success: false,
-            message: 'Webhook received but had processing error',
-            timestamp: new Date().toISOString()
-        });
-    }
-});
+
 
 // 404 handler
 app.use('*', (req: Request, res: Response) => {
@@ -249,9 +167,7 @@ app.use('*', (req: Request, res: Response) => {
         availableEndpoints: [
             'GET /health',
             'GET /status',
-            'POST /webhook',
-            'POST /webhook/pump-fun',
-            'POST /webhook/pump-fun/:amount'
+            'POST /webhook'
         ],
         timestamp: new Date().toISOString()
     });
@@ -264,9 +180,15 @@ app.listen(PORT, () => {
     );
     
     console.log(`🚀 Pump.fun Sniper Bot Webhook Server running on port ${PORT}`);
-    console.log(`📡 Webhook endpoint: POST /webhook/pump-fun`);
+    console.log(`📡 Webhook endpoint: POST /webhook`);
     console.log(`📊 Status endpoint: GET /status`);
     console.log(`❤️  Health check: GET /health`);
+});
+
+// Add basic request logging
+app.use((req: Request, res: Response, next: NextFunction) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    next();
 });
 
 export default app;
