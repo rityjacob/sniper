@@ -64,6 +64,7 @@ app.post('/webhook', async (req: Request, res: Response) => {
                 
                 // Check if this is a Pump.fun transaction - look for the program ID in various places
                 const isPumpFun = tx.programId === 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61' || 
+                                 tx.source === 'PUMP_AMM' ||
                                  (tx.instructions && tx.instructions.some((inst: any) => 
                                      inst.programId === 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61'
                                  )) ||
