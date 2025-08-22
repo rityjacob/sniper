@@ -4,6 +4,7 @@ import { dexManager } from './dex';
 import { PumpFunWebhook } from './types';
 import { logger } from './utils/logger';
 import { config } from 'dotenv';
+import fetch from 'node-fetch';
 
 // Load environment variables
 config();
@@ -217,5 +218,35 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
     next();
 });
+
+// Self-ping function to keep server awake
+function startSelfPing() {
+    const pingInterval = 14 * 60 * 1000; // 14 minutes in milliseconds
+    const serverUrl = process.env.RENDER_EXTERNAL_URL || `https://sniper-tup2.onrender.com`;
+    
+    const pingServer = async () => {
+        try {
+            const response = await fetch(`${serverUrl}/health`);
+            if (response.ok) {
+                logger.logInfo('ping', 'Self-ping successful', `Server kept awake at ${new Date().toISOString()}`);
+            } else {
+                logger.logWarning('ping', 'Self-ping failed', `Status: ${response.status}`);
+            }
+        } catch (error) {
+            logger.logError('ping', 'Self-ping error', error instanceof Error ? error.message : String(error));
+        }
+    };
+
+    // Start the ping interval
+    setInterval(pingServer, pingInterval);
+    
+    // Initial ping
+    pingServer();
+    
+    logger.logInfo('ping', 'Self-ping started', `Pinging every ${pingInterval / 1000 / 60} minutes to keep server awake`);
+}
+
+// Start self-ping when server starts
+startSelfPing();
 
 export default app;
