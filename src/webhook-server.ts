@@ -192,32 +192,121 @@ app.post('/webhook', async (req: Request, res: Response) => {
                         `Token: ${tx.tokenTransfers?.[0]?.mint || 'unknown'}, Amount: ${tx.nativeTransfers?.[0]?.amount || 'unknown'}`
                     );
 
+                    // DEBUG: Log the actual webhook data structure
+                    logger.logInfo('webhook', 'DEBUG: Webhook data structure', 
+                        `ProgramId: ${tx.programId}, Source: ${tx.source}, Instructions: ${tx.instructions?.length || 0}`
+                    );
+                    
+                    if (tx.instructions && tx.instructions.length > 0) {
+                        tx.instructions.forEach((inst: any, index: number) => {
+                            logger.logInfo('webhook', `DEBUG: Instruction ${index}`, 
+                                `ProgramId: ${inst.programId}, InnerInstructions: ${inst.innerInstructions?.length || 0}`
+                            );
+                            if (inst.innerInstructions) {
+                                inst.innerInstructions.forEach((innerInst: any, innerIndex: number) => {
+                                    logger.logInfo('webhook', `DEBUG: Inner Instruction ${index}.${innerIndex}`, 
+                                        `ProgramId: ${innerInst.programId}`
+                                    );
+                                });
+                            }
+                        });
+                    }
+
+                    // Analyze the transaction to determine if it's a buy or sell
+                    const tokenTransfers = tx.tokenTransfers || [];
+                    const nativeTransfers = tx.nativeTransfers || [];
+                    const targetWallet = process.env.TARGET_WALLET_ADDRESS;
+                    
+                    // DEBUG: Log target wallet and transaction signer
+                    logger.logInfo('webhook', 'DEBUG: Wallet comparison', 
+                        `TargetWallet: ${targetWallet}, TransactionSigner: ${tx.feePayer || 'unknown'}`
+                    );
+                    
+                    // DEBUG: Log token transfers
+                    logger.logInfo('webhook', 'DEBUG: Token transfers', 
+                        `Count: ${tokenTransfers.length}, TargetWallet: ${targetWallet}`
+                    );
+                    tokenTransfers.forEach((transfer: any, index: number) => {
+                        logger.logInfo('webhook', `DEBUG: Token transfer ${index}`, 
+                            `Mint: ${transfer.mint}, From: ${transfer.fromUserAccount}, To: ${transfer.toUserAccount}`
+                        );
+                    });
+                    
+                    // Find if target wallet is buying (receiving tokens) or selling (sending tokens)
+                    const targetBuying = tokenTransfers.some((transfer: any) => 
+                        transfer.toUserAccount === targetWallet || transfer.toTokenAccount === targetWallet
+                    );
+                    
+                    const targetSelling = tokenTransfers.some((transfer: any) => 
+                        transfer.fromUserAccount === targetWallet || transfer.fromTokenAccount === targetWallet
+                    );
+                    
+                    logger.logInfo('webhook', 'DEBUG: Transaction direction', 
+                        `TargetBuying: ${targetBuying}, TargetSelling: ${targetSelling}`
+                    );
+                    
+                    // Determine input and output mints based on transaction direction
+                    let inputMint, outputMint;
+                    if (targetBuying) {
+                        // Target is buying: SOL → Token
+                        inputMint = 'So11111111111111111111111111111111111111112'; // WSOL
+                        outputMint = tokenTransfers.find((t: any) => 
+                            t.toUserAccount === targetWallet || t.toTokenAccount === targetWallet
+                        )?.mint || '';
+                    } else if (targetSelling) {
+                        // Target is selling: Token → SOL
+                        inputMint = tokenTransfers.find((t: any) => 
+                            t.fromUserAccount === targetWallet || t.fromTokenAccount === targetWallet
+                        )?.mint || '';
+                        outputMint = 'So11111111111111111111111111111111111111112'; // WSOL
+                    } else {
+                        // Fallback to original logic
+                        inputMint = 'So11111111111111111111111111111111111111112';
+                        outputMint = tx.tokenTransfers?.[0]?.mint || '';
+                    }
+
+                    logger.logInfo('webhook', 'DEBUG: Determined mints', 
+                        `InputMint: ${inputMint}, OutputMint: ${outputMint}`
+                    );
+
                     // Extract transaction details
                     const webhookData = {
-                        inputMint: tx.nativeTransfers?.[0]?.fromUserAccount || 'So11111111111111111111111111111111111111112',
-                        outputMint: tx.tokenTransfers?.[0]?.mint || '',
+                        inputMint: inputMint,
+                        outputMint: outputMint,
                         amount: tx.nativeTransfers?.[0]?.amount || '0',
-                        programId: tx.programId,
+                        programId: 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61', // Always set to Pump.fun program ID for Pump.fun transactions
                         signature: tx.signature,
                         slot: tx.slot,
                         blockTime: tx.timestamp,
                         accounts: tx.accountData?.map((acc: any) => acc.account) || [],
-                        data: tx.instructions?.[0]?.data || ''
+                        data: tx.instructions?.[0]?.data || '',
+                        transaction: tx // Include full transaction data for enhanced processing
                     };
 
-                    // Extract fixed buy amount from environment or use default
-                    const fixedBuyAmount = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1');
-                    
-                    logger.logInfo('webhook', 'Executing Pump.fun trade', 
-                        `Fixed buy amount: ${fixedBuyAmount} SOL, Token: ${webhookData.outputMint}`
+                    logger.logInfo('webhook', 'DEBUG: Webhook data constructed', 
+                        `ProgramId: ${webhookData.programId}, InputMint: ${webhookData.inputMint}, OutputMint: ${webhookData.outputMint}`
                     );
 
-                    // Process the webhook and execute trade
-                    const signature = await dexManager.processLeaderBuyWebhook(webhookData, fixedBuyAmount);
-                    
-                    logger.logInfo('webhook', 'Pump.fun trade completed', 
-                        `Signature: ${signature}, Token: ${webhookData.outputMint}`
-                    );
+                    // Only process if target wallet is buying (we want to copy buys, not sells)
+                    if (targetBuying) {
+                        // Extract fixed buy amount from environment or use default
+                        const fixedBuyAmount = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1');
+                        
+                        logger.logInfo('webhook', 'Executing Pump.fun trade', 
+                            `Fixed buy amount: ${fixedBuyAmount} SOL, Token: ${webhookData.outputMint}`
+                        );
+
+                        // Process the webhook and execute trade
+                        const signature = await dexManager.processLeaderBuyWebhook(webhookData, fixedBuyAmount);
+                        
+                        logger.logInfo('webhook', 'Pump.fun trade completed', 
+                            `Signature: ${signature}, Token: ${webhookData.outputMint}`
+                        );
+                    } else {
+                        logger.logInfo('webhook', 'Skipping sell transaction', 
+                            `Target wallet is selling, not buying. Token: ${webhookData.inputMint}`
+                        );
+                    }
                 } else {
                     // Handle general SWAP and TRANSFER events for target wallet tracking
                     if (tx.type === 'SWAP' || tx.type === 'TRANSFER') {

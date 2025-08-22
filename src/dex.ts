@@ -47,16 +47,66 @@ class DexManager {
     }
 
     /**
+     * Determine if target wallet is buying or selling based on transaction data
+     */
+    private isTargetWalletBuying(webhookData: PumpFunWebhook, targetWallet: string): boolean {
+        try {
+            if (!webhookData.transaction) {
+                logger.logWarning('dex', 'No transaction data available', 'Cannot determine buy/sell direction');
+                return false;
+            }
+
+            const { postTokenBalances, preTokenBalances } = webhookData.transaction.meta;
+            
+            // Check if target wallet received tokens (buying)
+            const targetReceivedTokens = postTokenBalances.some(balance => 
+                balance.owner === targetWallet && 
+                balance.mint === webhookData.outputMint &&
+                parseFloat(balance.uiTokenAmount.amount) > 0
+            );
+
+            // Check if target wallet sent tokens (selling)
+            const targetSentTokens = preTokenBalances.some(balance => 
+                balance.owner === targetWallet && 
+                balance.mint === webhookData.inputMint &&
+                parseFloat(balance.uiTokenAmount.amount) > 0
+            );
+
+            if (targetReceivedTokens && !targetSentTokens) {
+                logger.logInfo('dex', 'Target wallet is buying', `Wallet: ${targetWallet}`);
+                return true;
+            } else if (targetSentTokens && !targetReceivedTokens) {
+                logger.logInfo('dex', 'Target wallet is selling', `Wallet: ${targetWallet}`);
+                return false;
+            } else {
+                logger.logWarning('dex', 'Cannot determine buy/sell direction', 
+                    `Received: ${targetReceivedTokens}, Sent: ${targetSentTokens}`
+                );
+                return false;
+            }
+        } catch (error) {
+            logger.logError('dex', 'Error determining buy/sell direction', error instanceof Error ? error.message : String(error));
+            return false;
+        }
+    }
+
+    /**
      * Detect if a transaction is a "leader bought on PumpSwap"
      */
     private detectLeaderBuy(webhookData: PumpFunWebhook): boolean {
         try {
+            logger.logInfo('dex', 'Detecting leader buy', 
+                `ProgramId: ${webhookData.programId}, InputMint: ${webhookData.inputMint}, OutputMint: ${webhookData.outputMint}`
+            );
+
             // Check if it's a Pump.fun transaction
             const isPumpFun = webhookData.programId === PUMP_FUN_PROGRAM_ID.toString() || 
                              webhookData.source === 'PUMP_AMM';
 
             if (!isPumpFun) {
-                logger.logInfo('dex', 'Not a Pump.fun transaction', 'Skipping non-Pump.fun transaction');
+                logger.logInfo('dex', 'Not a Pump.fun transaction', 
+                    `ProgramId: ${webhookData.programId}, Expected: ${PUMP_FUN_PROGRAM_ID.toString()}`
+                );
                 return false;
             }
 
@@ -65,7 +115,15 @@ class DexManager {
                          webhookData.outputMint !== WSOL_MINT.toString();
 
             if (!isBuy) {
-                logger.logInfo('dex', 'Not a buy transaction', 'Skipping sell transaction');
+                logger.logInfo('dex', 'Not a buy transaction', 
+                    `InputMint: ${webhookData.inputMint}, OutputMint: ${webhookData.outputMint}, Expected Input: ${WSOL_MINT.toString()}`
+                );
+                return false;
+            }
+
+            // Additional validation: check if we have valid token mints
+            if (!webhookData.outputMint || webhookData.outputMint === '') {
+                logger.logWarning('dex', 'Invalid output mint', 'Output mint is empty or undefined');
                 return false;
             }
 
@@ -305,6 +363,11 @@ class DexManager {
     async processLeaderBuyWebhook(webhookData: PumpFunWebhook, fixedBuyAmount: number = 0.1): Promise<string> {
         try {
             logger.logInfo('dex', 'Processing leader buy webhook', 'Starting trade execution');
+            
+            // Log the webhook data for debugging
+            logger.logInfo('dex', 'Webhook data received', 
+                `ProgramId: ${webhookData.programId}, InputMint: ${webhookData.inputMint}, OutputMint: ${webhookData.outputMint}, Amount: ${webhookData.amount}`
+            );
 
             // Step 1: Detect "leader bought on PumpSwap"
             if (!this.detectLeaderBuy(webhookData)) {
