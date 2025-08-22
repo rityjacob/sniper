@@ -5,6 +5,11 @@ export interface PumpFunWebhook {
     accounts: string[];
     programId: string; // troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61
     data: string; // base64-encoded instruction
+    source?: string; // PUMP_AMM, etc.
+    signature?: string;
+    slot?: number;
+    blockTime?: number;
+    timestamp?: number;
     // Enhanced transaction payload
     transaction?: {
         signature: string;

@@ -51,23 +51,12 @@ class DexManager {
      */
     private detectLeaderBuy(webhookData: PumpFunWebhook): boolean {
         try {
-            if (!webhookData.transaction) {
-                logger.logWarning('dex', 'No transaction data in webhook', 'Cannot detect leader buy');
-                return false;
-            }
+            // Check if it's a Pump.fun transaction
+            const isPumpFun = webhookData.programId === PUMP_FUN_PROGRAM_ID.toString() || 
+                             webhookData.source === 'PUMP_AMM';
 
-            const { transaction } = webhookData;
-            const { logMessages } = transaction.meta;
-
-            // Check if logs contain PumpSwap activity
-            const hasPumpSwapLogs = logMessages.some(log => 
-                log.includes('PumpSwap') || 
-                log.includes('pump-swap') ||
-                log.includes('Program troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61')
-            );
-
-            if (!hasPumpSwapLogs) {
-                logger.logInfo('dex', 'No PumpSwap activity detected', 'Skipping transaction');
+            if (!isPumpFun) {
+                logger.logInfo('dex', 'Not a Pump.fun transaction', 'Skipping non-Pump.fun transaction');
                 return false;
             }
 
@@ -101,33 +90,24 @@ class DexManager {
         amount: number;
     } {
         try {
-            if (!webhookData.transaction) {
-                throw new Error('No transaction data in webhook');
-            }
-
-            const { transaction } = webhookData;
-            const { accountKeys, instructions } = transaction.transaction.message;
-
             // Extract token mint from output mint
             const tokenMint = webhookData.outputMint;
             if (!tokenMint || tokenMint === WSOL_MINT.toString()) {
                 throw new Error('Invalid token mint in webhook');
             }
 
-            // Extract leader wallet (first account is usually the signer)
-            const leaderWallet = accountKeys[0];
+            // Extract leader wallet from accounts (first account is usually the signer)
+            const leaderWallet = webhookData.accounts[0];
             if (!leaderWallet) {
                 throw new Error('No leader wallet found in transaction');
             }
 
-            // Try to extract pool address from instructions
+            // Try to extract pool address from accounts
             let poolAddress: string | undefined;
-            for (const instruction of instructions) {
-                if (instruction.programId === PUMP_FUN_PROGRAM_ID.toString()) {
-                    // Pool address is usually one of the accounts in the instruction
-                    poolAddress = instruction.accounts[1]; // Adjust index as needed
-                    break;
-                }
+            // Look for the token mint in accounts (it's usually the pool address)
+            const poolAccount = webhookData.accounts.find(acc => acc === tokenMint);
+            if (poolAccount) {
+                poolAddress = poolAccount;
             }
 
             // Convert amount from lamports to SOL
