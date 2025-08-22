@@ -14,6 +14,8 @@ services:
         sync: false
       - key: WALLET_PRIVATE_KEY
         sync: false
+      - key: TARGET_WALLET_ADDRESS
+        sync: false
       - key: FIXED_BUY_AMOUNT
         value: "0.1"
       - key: TARGET_TOKEN_MINT
@@ -24,5 +26,7 @@ services:
         value: "1.0"
       - key: PERCENTAGE_OF_TARGET_TRADE
         value: "1"
+      - key: RENDER_EXTERNAL_URL
+        sync: false
     healthCheckPath: /health
     autoDeploy: true
