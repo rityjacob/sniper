@@ -32,7 +32,7 @@ app.post('/webhook', async (req: Request, res: Response) => {
         logger.logInfo('webhook', 'Received Helius webhook', 'Processing enhanced webhook data');
 
         // Log the actual webhook data for debugging
-        logger.logInfo('webhook', 'Webhook payload', JSON.stringify(req.body, null, 2));
+        logger.logInfo('webhook', 'Webhook payload', JSON.stringify(req.body));
 
         // Validate webhook data - handle both array and single transaction formats
         let transactions = [];
@@ -51,7 +51,7 @@ app.post('/webhook', async (req: Request, res: Response) => {
         }
 
         logger.logInfo('webhook', 'Processing transactions', `Received ${transactions.length} transaction(s)`);
-        logger.logInfo('webhook', 'Raw webhook data', JSON.stringify(req.body, null, 2));
+        logger.logInfo('webhook', 'Raw webhook data', JSON.stringify(req.body));
 
         let processedCount = 0;
         let pumpFunCount = 0;
