@@ -115,28 +115,28 @@ export function debugWebhookData(webhookData: any) {
     
     // Buy/Sell determination
     console.log('\n🔄 Buy/Sell Determination:');
-    const tokenTransfers = webhookData.tokenTransfers || [];
-    const targetWallet = process.env.TARGET_WALLET_ADDRESS;
+    const tokenTransfersForDirection = webhookData.tokenTransfers || [];
+    const targetWalletForDirection = process.env.TARGET_WALLET_ADDRESS;
     
-    if (targetWallet && tokenTransfers.length > 0) {
-        const targetBuying = tokenTransfers.some((t: any) => 
-            t.toUserAccount === targetWallet || t.toTokenAccount === targetWallet
+    if (targetWalletForDirection && tokenTransfersForDirection.length > 0) {
+        const targetBuying = tokenTransfersForDirection.some((t: any) => 
+            t.toUserAccount === targetWalletForDirection || t.toTokenAccount === targetWalletForDirection
         );
         
-        const targetSelling = tokenTransfers.some((t: any) => 
-            t.fromUserAccount === targetWallet || t.fromTokenAccount === targetWallet
+        const targetSelling = tokenTransfersForDirection.some((t: any) => 
+            t.fromUserAccount === targetWalletForDirection || t.fromTokenAccount === targetWalletForDirection
         );
         
         if (targetBuying) {
-            const receivedToken = tokenTransfers.find((t: any) => 
-                t.toUserAccount === targetWallet || t.toTokenAccount === targetWallet
+            const receivedToken = tokenTransfersForDirection.find((t: any) => 
+                t.toUserAccount === targetWalletForDirection || t.toTokenAccount === targetWalletForDirection
             );
             console.log('  - Transaction Type: BUY');
             console.log('  - Input Mint: WSOL (So11111111111111111111111111111111111111112)');
             console.log('  - Output Mint:', receivedToken?.mint || 'unknown');
         } else if (targetSelling) {
-            const soldToken = tokenTransfers.find((t: any) => 
-                t.fromUserAccount === targetWallet || t.fromTokenAccount === targetWallet
+            const soldToken = tokenTransfersForDirection.find((t: any) => 
+                t.fromUserAccount === targetWalletForDirection || t.fromTokenAccount === targetWalletForDirection
             );
             console.log('  - Transaction Type: SELL');
             console.log('  - Input Mint:', soldToken?.mint || 'unknown');
