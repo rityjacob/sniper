@@ -282,6 +282,19 @@ app.post('/webhook', async (req: Request, res: Response) => {
                         data: tx.instructions?.[0]?.data || '',
                         transaction: tx // Include full transaction data for enhanced processing
                     };
+                    
+                    // Enhanced console logging for transaction direction
+                    if (targetBuying) {
+                        console.log('🟢 BUY TRANSACTION DETECTED');
+                        console.log(`   Token: ${webhookData.outputMint}`);
+                        console.log(`   Amount: ${(parseInt(webhookData.amount) / 1e9).toFixed(6)} SOL`);
+                    } else {
+                        console.log('🔴 SELL TRANSACTION - SKIPPING');
+                        console.log(`   Token: ${webhookData.inputMint}`);
+                        console.log(`   Amount: ${(parseInt(webhookData.amount) / 1e9).toFixed(6)} SOL`);
+                        console.log('   💡 This is expected - we only copy BUY transactions, not SELL transactions');
+                        console.log('   📊 To receive BUY webhooks, ensure your Helius webhook is configured for ALL transaction types');
+                    }
 
                     logger.logInfo('webhook', 'DEBUG: Webhook data constructed', 
                         `ProgramId: ${webhookData.programId}, InputMint: ${webhookData.inputMint}, OutputMint: ${webhookData.outputMint}`
@@ -289,6 +302,10 @@ app.post('/webhook', async (req: Request, res: Response) => {
 
                     // Only process if target wallet is buying (we want to copy buys, not sells)
                     if (targetBuying) {
+                        logger.logInfo('webhook', 'Pump.fun BUY transaction detected', 
+                            `Token: ${webhookData.outputMint}, Amount: ${webhookData.amount} lamports`
+                        );
+                        
                         // Extract fixed buy amount from environment or use default
                         const fixedBuyAmount = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1');
                         
@@ -540,9 +557,17 @@ app.get('/status', async (req: Request, res: Response) => {
             config: {
                 fixedBuyAmount: process.env.FIXED_BUY_AMOUNT || '0.1',
                 targetTokenMint: process.env.TARGET_TOKEN_MINT || 'not set',
-                rpcUrl: process.env.SOLANA_RPC_URL ? 'configured' : 'not configured'
+                rpcUrl: process.env.SOLANA_RPC_URL ? 'configured' : 'not configured',
+                targetWallet: process.env.TARGET_WALLET_ADDRESS || 'not set'
             },
-            balance: balance
+            balance: balance,
+            webhookInfo: {
+                endpoint: '/webhook',
+                testEndpoint: '/test-webhook',
+                healthEndpoint: '/health',
+                expectedTransactionTypes: ['SWAP', 'TRANSFER'],
+                targetWallet: process.env.TARGET_WALLET_ADDRESS || 'not set'
+            }
         });
     } catch (error: any) {
         res.status(500).json({
