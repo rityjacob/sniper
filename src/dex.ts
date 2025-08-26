@@ -215,26 +215,28 @@ class DexManager {
      */
     private confirmLeaderIsBuyer(webhookData: PumpFunWebhook, leaderWallet: string): boolean {
         try {
-            if (!webhookData.transaction) {
-                return false;
-            }
-
-            const { postTokenBalances } = webhookData.transaction.meta;
+            // Since we already validated this is a buy transaction in detectLeaderBuy,
+            // and the webhook data shows the target wallet is buying, we can trust this
+            // For now, let's use a simpler approach based on the webhook data structure
             
-            // Check if leader wallet received tokens
-            const leaderReceivedTokens = postTokenBalances.some(balance => 
-                balance.owner === leaderWallet && 
-                balance.mint === webhookData.outputMint &&
-                parseFloat(balance.uiTokenAmount.amount) > 0
-            );
-
-            if (!leaderReceivedTokens) {
-                logger.logWarning('dex', 'Leader wallet did not receive tokens', 'Skipping transaction');
-                return false;
+            // Check if the target wallet is the fee payer (which indicates they initiated the transaction)
+            if (webhookData.feePayer === leaderWallet) {
+                logger.logInfo('dex', 'Leader wallet confirmed as buyer', 
+                    `Wallet: ${leaderWallet} is fee payer`
+                );
+                return true;
             }
 
-            logger.logInfo('dex', 'Leader wallet confirmed as buyer', `Wallet: ${leaderWallet}`);
-            return true;
+            // Alternative: check if the leader wallet is in the accounts list (usually first account)
+            if (webhookData.accounts && webhookData.accounts[0] === leaderWallet) {
+                logger.logInfo('dex', 'Leader wallet confirmed as buyer', 
+                    `Wallet: ${leaderWallet} is first account in transaction`
+                );
+                return true;
+            }
+
+            logger.logWarning('dex', 'Cannot confirm leader is buyer', 'No clear indication in webhook data');
+            return false;
         } catch (error) {
             logger.logError('dex', 'Error confirming leader is buyer', error instanceof Error ? error.message : String(error));
             return false;

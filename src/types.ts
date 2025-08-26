@@ -10,6 +10,7 @@ export interface PumpFunWebhook {
     slot?: number;
     blockTime?: number;
     timestamp?: number;
+    feePayer?: string; // Fee payer of the transaction
     // Enhanced transaction payload
     transaction?: {
         signature: string;
