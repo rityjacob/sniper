@@ -10,6 +10,7 @@
     "dev": "tsc -w & node dist/webhook-server.js",
     "webhook": "ts-node src/webhook-server.ts",
     "test-webhook": "ts-node src/scripts/test-webhook.ts",
+    "test-universal": "ts-node src/scripts/test-universal-webhook.ts",
     "debug": "ts-node src/scripts/debug-env.ts"
   },
   "repository": {
