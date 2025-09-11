@@ -24,11 +24,23 @@ import {
     createAssociatedTokenAccountInstruction,
     createTransferInstruction
 } from '@solana/spl-token';
-import { PumpFunWebhook, PumpFunSwapParams, SwapResult, TokenBalance } from './types';
+import { 
+    PumpFunWebhook, 
+    PumpFunSwapParams, 
+    SwapResult, 
+    TokenBalance,
+    SwapCalculation,
+    CopyTradeParams
+} from './types';
 import { 
     PumpAmmSdk,
+    PumpAmmInternalSdk,
     buyQuoteInputInternal,
-    PUMP_AMM_PROGRAM_ID_PUBKEY
+    buyBaseInputInternal,
+    sellBaseInputInternal,
+    sellQuoteInputInternal,
+    PUMP_AMM_PROGRAM_ID_PUBKEY,
+    SwapSolanaState
 } from '@pump-fun/pump-swap-sdk';
 
 // Pump.fun Program ID
@@ -38,12 +50,36 @@ const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 class DexManager {
     private connection: Connection;
     private pumpAmmSdk: PumpAmmSdk;
+    private pumpAmmInternalSdk: PumpAmmInternalSdk;
     private readonly maxRetries = 3;
     private readonly retryDelay = 1000; // 1 second
+    private readonly defaultSlippage = 0.01; // 1% slippage
 
     constructor() {
         this.connection = walletManager.getConnection();
         this.pumpAmmSdk = new PumpAmmSdk(this.connection);
+        this.pumpAmmInternalSdk = new PumpAmmInternalSdk(this.connection);
+    }
+
+    /**
+     * Extract pool key from webhook data
+     * The pool key is typically the token mint address for Pump.fun
+     */
+    private extractPoolKey(webhookData: PumpFunWebhook): string {
+        try {
+            // For Pump.fun, the pool key is usually the token mint
+            const tokenMint = webhookData.outputMint || webhookData.inputMint;
+            
+            if (!tokenMint || tokenMint === WSOL_MINT.toString()) {
+                throw new Error('Invalid token mint in webhook data');
+            }
+
+            logger.logInfo('dex', 'Pool key extracted', `Token mint: ${tokenMint}`);
+            return tokenMint;
+        } catch (error) {
+            logger.logError('dex', 'Error extracting pool key', error instanceof Error ? error.message : String(error));
+            throw error;
+        }
     }
 
     /**
@@ -91,184 +127,160 @@ class DexManager {
     }
 
     /**
-     * Detect if a transaction is a "leader bought on PumpSwap"
+     * Get swap state for a pool
      */
-    private detectLeaderBuy(webhookData: PumpFunWebhook): boolean {
+    private async getSwapState(poolKey: string, user: PublicKey): Promise<SwapSolanaState> {
         try {
-            logger.logInfo('dex', 'Detecting leader buy', 
-                `ProgramId: ${webhookData.programId}, InputMint: ${webhookData.inputMint}, OutputMint: ${webhookData.outputMint}`
+            logger.logInfo('dex', 'Fetching swap state', `Pool: ${poolKey}`);
+            
+            const swapSolanaState = await this.pumpAmmSdk.swapSolanaState(
+                new PublicKey(poolKey), 
+                user
             );
 
-            // Check if it's a Pump.fun transaction
-            const isPumpFun = webhookData.programId === PUMP_FUN_PROGRAM_ID.toString() || 
-                             webhookData.source === 'PUMP_AMM';
-
-            if (!isPumpFun) {
-                logger.logInfo('dex', 'Not a Pump.fun transaction', 
-                    `ProgramId: ${webhookData.programId}, Expected: ${PUMP_FUN_PROGRAM_ID.toString()}`
-                );
-                return false;
-            }
-
-            // Check if it's a buy (WSOL → token)
-            const isBuy = webhookData.inputMint === WSOL_MINT.toString() && 
-                         webhookData.outputMint !== WSOL_MINT.toString();
-
-            if (!isBuy) {
-                logger.logInfo('dex', 'Not a buy transaction', 
-                    `InputMint: ${webhookData.inputMint}, OutputMint: ${webhookData.outputMint}, Expected Input: ${WSOL_MINT.toString()}`
-                );
-                return false;
-            }
-
-            // Additional validation: check if we have valid token mints
-            if (!webhookData.outputMint || webhookData.outputMint === '') {
-                logger.logWarning('dex', 'Invalid output mint', 'Output mint is empty or undefined');
-                return false;
-            }
-
-            logger.logInfo('dex', 'Leader buy detected', 
-                `Input: ${webhookData.inputMint}, Output: ${webhookData.outputMint}`
+            logger.logInfo('dex', 'Swap state fetched', 
+                `Pool: ${poolKey}, Base: ${swapSolanaState.poolBaseAmount.toString()}, Quote: ${swapSolanaState.poolQuoteAmount.toString()}`
             );
 
-            return true;
+            return swapSolanaState;
         } catch (error) {
-            logger.logError('dex', 'Error detecting leader buy', error instanceof Error ? error.message : String(error));
-            return false;
-        }
-    }
-
-    /**
-     * Parse webhook's enhanced transaction payload
-     */
-    private parseWebhookPayload(webhookData: PumpFunWebhook): {
-        tokenMint: string;
-        leaderWallet: string;
-        poolAddress?: string;
-        amount: number;
-    } {
-        try {
-            // Extract token mint from output mint
-            const tokenMint = webhookData.outputMint;
-            if (!tokenMint || tokenMint === WSOL_MINT.toString()) {
-                throw new Error('Invalid token mint in webhook');
-            }
-
-            // Extract leader wallet from accounts (first account is usually the signer)
-            const leaderWallet = webhookData.accounts[0];
-            if (!leaderWallet) {
-                throw new Error('No leader wallet found in transaction');
-            }
-
-            // Try to extract pool address from accounts
-            let poolAddress: string | undefined;
-            // Look for the token mint in accounts (it's usually the pool address)
-            const poolAccount = webhookData.accounts.find(acc => acc === tokenMint);
-            if (poolAccount) {
-                poolAddress = poolAccount;
-            }
-
-            // Convert amount from lamports to SOL
-            const amount = parseFloat(webhookData.amount) / 1e9;
-
-            logger.logInfo('dex', 'Webhook payload parsed', 
-                `Token: ${tokenMint}, Leader: ${leaderWallet}, Amount: ${amount} SOL, Pool: ${poolAddress || 'unknown'}`
-            );
-
-            return {
-                tokenMint,
-                leaderWallet,
-                poolAddress,
-                amount
-            };
-        } catch (error) {
-            logger.logError('dex', 'Error parsing webhook payload', error instanceof Error ? error.message : String(error));
+            logger.logError('dex', 'Error fetching swap state', error instanceof Error ? error.message : String(error));
             throw error;
         }
     }
 
     /**
-     * Confirm the transaction contains Pump.fun AMM program invocation
+     * Calculate buy amount using Pump Swap SDK
      */
-    private confirmPumpFunInvocation(webhookData: PumpFunWebhook): boolean {
+    private calculateBuyAmount(
+        swapState: SwapSolanaState, 
+        quoteAmount: bigint, 
+        slippage: number
+    ): SwapCalculation {
         try {
-            // Since we already detected this as a Pump.fun transaction in the webhook,
-            // and we can see from the debug logs that instruction 7 contains the Pump.fun program ID,
-            // we can trust that this is a valid Pump.fun transaction
-            if (webhookData.programId === PUMP_FUN_PROGRAM_ID.toString()) {
-                logger.logInfo('dex', 'Pump.fun AMM invocation confirmed', 'Program ID matches');
-                return true;
-            }
+            const { globalConfig, pool, poolBaseAmount, poolQuoteAmount } = swapState;
 
-            // If program ID doesn't match, but we know it's a Pump.fun transaction from webhook detection,
-            // we can still proceed since the webhook detection is more comprehensive
-            logger.logInfo('dex', 'Pump.fun AMM invocation confirmed', 'Trusting webhook detection');
-            return true;
+            const result = buyQuoteInputInternal(
+                quoteAmount,
+                slippage,
+                poolBaseAmount,
+                poolQuoteAmount,
+                globalConfig,
+                pool.creator
+            );
+
+            logger.logInfo('dex', 'Buy amount calculated', 
+                `Quote: ${quoteAmount.toString()}, Base: ${result.base.toString()}, Max Quote: ${result.maxQuote.toString()}`
+            );
+
+            return { uiQuote: Number(result.maxQuote) / 1e9, base: result.base, quote: quoteAmount };
         } catch (error) {
-            logger.logError('dex', 'Error confirming Pump.fun invocation', error instanceof Error ? error.message : String(error));
-            return false;
+            logger.logError('dex', 'Error calculating buy amount', error instanceof Error ? error.message : String(error));
+            throw error;
         }
     }
 
     /**
-     * Confirm the leader wallet is the buyer
+     * Calculate sell amount using Pump Swap SDK
      */
-    private confirmLeaderIsBuyer(webhookData: PumpFunWebhook, leaderWallet: string): boolean {
+    private calculateSellAmount(
+        swapState: SwapSolanaState, 
+        baseAmount: bigint, 
+        slippage: number
+    ): SwapCalculation {
         try {
-            // Since we already validated this is a buy transaction in detectLeaderBuy,
-            // and the webhook data shows the target wallet is buying, we can trust this
-            // For now, let's use a simpler approach based on the webhook data structure
+            const { globalConfig, pool, poolBaseAmount, poolQuoteAmount } = swapState;
+
+            const result = sellBaseInputInternal(
+                baseAmount,
+                slippage,
+                poolBaseAmount,
+                poolQuoteAmount,
+                globalConfig,
+                pool.creator
+            );
+
+            logger.logInfo('dex', 'Sell amount calculated', 
+                `Base: ${baseAmount.toString()}, Min Quote: ${result.minQuote.toString()}, UI Quote: ${result.uiQuote.toString()}`
+            );
+
+            return { uiQuote: Number(result.uiQuote) / 1e9, base: baseAmount, quote: result.minQuote };
+        } catch (error) {
+            logger.logError('dex', 'Error calculating sell amount', error instanceof Error ? error.message : String(error));
+            throw error;
+        }
+    }
+
+    /**
+     * Execute buy transaction using Pump Swap SDK
+     */
+    private async executeBuy(
+        swapState: SwapSolanaState, 
+        quoteAmount: bigint, 
+        slippage: number
+    ): Promise<string> {
+        try {
+            logger.logInfo('dex', 'Executing buy transaction', 
+                `Quote amount: ${quoteAmount.toString()}, Slippage: ${slippage}`
+            );
+
+            // Use buyQuoteInput for buying tokens with SOL
+            const instructions = await this.pumpAmmInternalSdk.buyQuoteInput(
+                swapState,
+                quoteAmount,
+                slippage
+            );
+
+            // Create and send transaction
+            const transaction = new Transaction();
+            transaction.add(...instructions);
             
-            // Check if the target wallet is the fee payer (which indicates they initiated the transaction)
-            if (webhookData.feePayer === leaderWallet) {
-                logger.logInfo('dex', 'Leader wallet confirmed as buyer', 
-                    `Wallet: ${leaderWallet} is fee payer`
-                );
-                return true;
-            }
+            const signature = await walletManager.signAndSendTransaction(transaction);
 
-            // Alternative: check if the leader wallet is in the accounts list (usually first account)
-            if (webhookData.accounts && webhookData.accounts[0] === leaderWallet) {
-                logger.logInfo('dex', 'Leader wallet confirmed as buyer', 
-                    `Wallet: ${leaderWallet} is first account in transaction`
-                );
-                return true;
-            }
-
-            logger.logWarning('dex', 'Cannot confirm leader is buyer', 'No clear indication in webhook data');
-            return false;
+            logger.logInfo('dex', 'Buy transaction successful', `Signature: ${signature}`);
+            return signature;
         } catch (error) {
-            logger.logError('dex', 'Error confirming leader is buyer', error instanceof Error ? error.message : String(error));
-            return false;
+            logger.logError('dex', 'Buy transaction failed', error instanceof Error ? error.message : String(error));
+            throw error;
         }
     }
 
     /**
-     * Check if pool exists (token has graduated to AMM)
+     * Execute sell transaction using Pump Swap SDK
      */
-    private async checkPoolExists(tokenMint: string): Promise<boolean> {
+    private async executeSell(
+        swapState: SwapSolanaState, 
+        baseAmount: bigint, 
+        slippage: number
+    ): Promise<string> {
         try {
-            logger.logInfo('dex', 'Checking pool existence', `Token: ${tokenMint}`);
+            logger.logInfo('dex', 'Executing sell transaction', 
+                `Base amount: ${baseAmount.toString()}, Slippage: ${slippage}`
+            );
 
-            // For now, we'll assume the pool exists if we can get account info
-            // In a real implementation, you would check the specific pool account
-            const tokenAccount = await this.connection.getAccountInfo(new PublicKey(tokenMint));
+            // Use sellBaseInput for selling tokens for SOL
+            const instructions = await this.pumpAmmInternalSdk.sellBaseInput(
+                swapState,
+                baseAmount,
+                slippage
+            );
+
+            // Create and send transaction
+            const transaction = new Transaction();
+            transaction.add(...instructions);
             
-            if (!tokenAccount) {
-                logger.logWarning('dex', 'Token account does not exist', `Token: ${tokenMint}`);
-                return false;
-            }
+            const signature = await walletManager.signAndSendTransaction(transaction);
 
-            logger.logInfo('dex', 'Pool check passed', `Token: ${tokenMint} appears to have liquidity`);
-            return true;
+            logger.logInfo('dex', 'Sell transaction successful', `Signature: ${signature}`);
+            return signature;
         } catch (error) {
-            logger.logError('dex', 'Error checking pool existence', error instanceof Error ? error.message : String(error));
-            return false;
+            logger.logError('dex', 'Sell transaction failed', error instanceof Error ? error.message : String(error));
+            throw error;
         }
     }
 
     /**
-     * Check SOL balance for fixed buy + fees
+     * Check SOL balance for trade
      */
     private async checkSolBalance(requiredAmount: number): Promise<boolean> {
         try {
@@ -295,114 +307,57 @@ class DexManager {
     }
 
     /**
-     * Execute BUY using Pump.fun SDK
-     */
-    private async executeBuyWithSDK(tokenMint: string, amount: number): Promise<string> {
-        try {
-            logger.logInfo('dex', 'Executing buy with Pump.fun SDK', 
-                `Token: ${tokenMint}, Amount: ${amount} SOL`
-            );
-
-            // Create a simple transaction for now
-            // In a real implementation, you would use the Pump.fun SDK properly
-            const transaction = new Transaction();
-            
-            // Add priority fee
-            transaction.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-            transaction.feePayer = walletManager.getPublicKey();
-
-            // For now, we'll create a placeholder instruction
-            // This would be replaced with actual Pump.fun buy instruction
-            const buyInstruction = new TransactionInstruction({
-                programId: PUMP_FUN_PROGRAM_ID,
-                keys: [
-                    { pubkey: walletManager.getPublicKey(), isSigner: true, isWritable: true },
-                    { pubkey: new PublicKey(tokenMint), isSigner: false, isWritable: false }
-                ],
-                data: Buffer.from([0x01]) // Placeholder instruction data
-            });
-
-            transaction.add(buyInstruction);
-
-            // Execute transaction with retry logic
-            let retries = 0;
-            while (retries < this.maxRetries) {
-                try {
-                    const signature = await walletManager.signAndSendTransaction(transaction);
-                    logger.logInfo('dex', 'Buy transaction successful', `Signature: ${signature}`);
-                    return signature;
-                } catch (error: any) {
-                    if ((error.message.includes('Blockhash not found') || 
-                         error.message.includes('RPC busy')) && 
-                        retries < this.maxRetries - 1) {
-                        retries++;
-                        logger.logWarning('dex', `Retrying buy transaction (${retries}/${this.maxRetries})`, 
-                            `Error: ${error.message}`
-                        );
-                        await new Promise(resolve => setTimeout(resolve, this.retryDelay));
-                        continue;
-                    }
-                    throw error;
-                }
-            }
-            
-            throw new Error('Max retries exceeded for buy transaction');
-        } catch (error) {
-            logger.logError('dex', 'Buy transaction failed', error instanceof Error ? error.message : String(error));
-            throw error;
-        }
-    }
-
-    /**
-     * Main method to process webhook and execute trade
+     * Main method to process webhook and execute copy trade
      */
     async processLeaderBuyWebhook(webhookData: PumpFunWebhook, fixedBuyAmount: number = 0.1): Promise<string> {
         try {
-            logger.logInfo('dex', 'Processing leader buy webhook', 'Starting trade execution');
+            logger.logInfo('dex', 'Processing leader buy webhook', 'Starting copy trade execution');
             
-            // Log the webhook data for debugging
-            logger.logInfo('dex', 'Webhook data received', 
-                `ProgramId: ${webhookData.programId}, InputMint: ${webhookData.inputMint}, OutputMint: ${webhookData.outputMint}, Amount: ${webhookData.amount}`
+            // Extract pool key (token mint)
+            const poolKey = this.extractPoolKey(webhookData);
+            
+            // Get target wallet from environment
+            const targetWallet = process.env.TARGET_WALLET_ADDRESS;
+            if (!targetWallet) {
+                throw new Error('TARGET_WALLET_ADDRESS not configured');
+            }
+
+            // Determine if target is buying or selling
+            const isBuying = this.isTargetWalletBuying(webhookData, targetWallet);
+            
+            if (!isBuying) {
+                logger.logInfo('dex', 'Skipping non-buy transaction', 'Target wallet is selling, not buying');
+                throw new Error('Target wallet is selling, not buying');
+            }
+
+            // Get user wallet
+            const userWallet = walletManager.getPublicKey();
+            
+            // Get swap state
+            const swapState = await this.getSwapState(poolKey, userWallet);
+            
+            // Check SOL balance
+            if (!(await this.checkSolBalance(fixedBuyAmount))) {
+                throw new Error('Insufficient SOL balance for trade');
+            }
+
+            // Convert SOL amount to lamports
+            const quoteAmount = BigInt(Math.floor(fixedBuyAmount * 1e9));
+            
+            // Calculate buy amount
+            const buyCalculation = this.calculateBuyAmount(swapState, quoteAmount, this.defaultSlippage);
+            
+            logger.logInfo('dex', 'Trade calculation complete', 
+                `Buying ${buyCalculation.base.toString()} tokens for ${fixedBuyAmount} SOL`
             );
 
-            // Step 1: Detect "leader bought on PumpSwap"
-            if (!this.detectLeaderBuy(webhookData)) {
-                throw new Error('Not a leader buy transaction');
-            }
-
-            // Step 2: Parse the webhook's enhanced transaction payload
-            const { tokenMint, leaderWallet, poolAddress, amount } = this.parseWebhookPayload(webhookData);
-
-            // Step 3: Confirm the tx contains Pump.fun AMM program invocation
-            if (!this.confirmPumpFunInvocation(webhookData)) {
-                throw new Error('No Pump.fun AMM program invocation found');
-            }
-
-            // Step 4: Confirm the leader wallet is the buyer
-            if (!this.confirmLeaderIsBuyer(webhookData, leaderWallet)) {
-                throw new Error('Leader wallet is not the buyer');
-            }
-
-            // Step 5: Extract the token mint received
-            logger.logInfo('dex', 'Token mint extracted', `Mint: ${tokenMint}`);
-
-            // Step 6: Confirm pool exists (token has graduated to AMM)
-            if (!(await this.checkPoolExists(tokenMint))) {
-                throw new Error('Token has not graduated to AMM');
-            }
-
-            // Step 7: Check your SOL balance ≥ fixed buy + fees
-            if (!(await this.checkSolBalance(fixedBuyAmount))) {
-                throw new Error('Insufficient SOL balance for fixed buy');
-            }
-
-            // Step 8: Execute your BUY (fixed SOL)
-            const signature = await this.executeBuyWithSDK(tokenMint, fixedBuyAmount);
+            // Execute buy transaction
+            const signature = await this.executeBuy(swapState, quoteAmount, this.defaultSlippage);
 
             // Post-trade logging
-            logger.logTransaction(signature, tokenMint, fixedBuyAmount.toString(), 'success');
-            logger.logInfo('dex', 'Trade completed successfully', 
-                `Signature: ${signature}, Token: ${tokenMint}, Amount: ${fixedBuyAmount} SOL`
+            logger.logTransaction(signature, poolKey, fixedBuyAmount.toString(), 'success');
+            logger.logInfo('dex', 'Copy trade completed successfully', 
+                `Signature: ${signature}, Token: ${poolKey}, Amount: ${fixedBuyAmount} SOL`
             );
 
             return signature;
@@ -414,21 +369,88 @@ class DexManager {
     }
 
     /**
+     * Process copy trade with custom parameters
+     */
+    async processCopyTrade(params: CopyTradeParams): Promise<string> {
+        try {
+            logger.logInfo('dex', 'Processing copy trade', 
+                `Token: ${params.tokenMint}, Amount: ${params.buyAmount} SOL, Is Buy: ${params.isBuy}`
+            );
+
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(params.poolKey, userWallet);
+            
+            if (params.isBuy) {
+                // Check SOL balance for buy
+                if (!(await this.checkSolBalance(params.buyAmount))) {
+                    throw new Error('Insufficient SOL balance for buy');
+                }
+
+                const quoteAmount = BigInt(Math.floor(params.buyAmount * 1e9));
+                const buyCalculation = this.calculateBuyAmount(swapState, quoteAmount, params.slippage);
+                
+                logger.logInfo('dex', 'Buy calculation', 
+                    `Buying ${buyCalculation.base.toString()} tokens for ${params.buyAmount} SOL`
+                );
+
+                return await this.executeBuy(swapState, quoteAmount, params.slippage);
+            } else {
+                // For selling, we need to check token balance instead
+                const tokenBalance = await this.getTokenBalance(params.tokenMint);
+                if (tokenBalance <= 0) {
+                    throw new Error('Insufficient token balance for sell');
+                }
+
+                // Convert percentage of holdings to base amount
+                const baseAmount = BigInt(Math.floor(tokenBalance * 1e9)); // Assuming 9 decimals
+                const sellCalculation = this.calculateSellAmount(swapState, baseAmount, params.slippage);
+                
+                logger.logInfo('dex', 'Sell calculation', 
+                    `Selling ${sellCalculation.base.toString()} tokens for ${sellCalculation.uiQuote} SOL`
+                );
+
+                return await this.executeSell(swapState, baseAmount, params.slippage);
+            }
+        } catch (error: any) {
+            logger.logError('dex', 'Copy trade processing failed', error.message);
+            throw error;
+        }
+    }
+
+    /**
      * Legacy methods for backward compatibility
      */
     async executeSwap(tokenAddress: string, amount: number, originalPrice?: number): Promise<string> {
-        throw new Error('Use processLeaderBuyWebhook() for Pump.fun trades');
+        throw new Error('Use processLeaderBuyWebhook() or processCopyTrade() for Pump.fun trades');
     }
 
     async sellToken(tokenAddress: string, tokenAmount: number): Promise<string> {
-        throw new Error('Selling not implemented for Pump.fun yet');
+        try {
+            const params: CopyTradeParams = {
+                tokenMint: tokenAddress,
+                poolKey: tokenAddress,
+                leaderWallet: '',
+                buyAmount: 0,
+                slippage: this.defaultSlippage,
+                isBuy: false
+            };
+            return await this.processCopyTrade(params);
+        } catch (error: any) {
+            logger.logError('dex', 'Sell token failed', error.message);
+            throw error;
+        }
     }
 
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
-            // Placeholder implementation - would need real Pump.fun price data
-            logger.logInfo('dex', 'Getting token price', `Token: ${tokenAddress}`);
-            return 0.001; // Placeholder price
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(tokenAddress, userWallet);
+            
+            // Calculate price based on pool reserves
+            const price = Number(swapState.poolQuoteAmount) / Number(swapState.poolBaseAmount);
+            
+            logger.logInfo('dex', 'Token price calculated', `Token: ${tokenAddress}, Price: ${price}`);
+            return price;
         } catch (error: any) {
             logger.logError('dex', 'Failed to get token price', error.message);
             return 0;
@@ -437,8 +459,17 @@ class DexManager {
 
     async checkLiquidity(tokenAddress: string): Promise<boolean> {
         try {
-            // Placeholder implementation
-            return true;
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(tokenAddress, userWallet);
+            
+            // Check if pool has sufficient liquidity
+            const hasLiquidity = swapState.poolBaseAmount > 0n && swapState.poolQuoteAmount > 0n;
+            
+            logger.logInfo('dex', 'Liquidity check', 
+                `Token: ${tokenAddress}, Has liquidity: ${hasLiquidity}`
+            );
+            
+            return hasLiquidity;
         } catch (error) {
             logger.logError('dex', 'Error checking liquidity', error instanceof Error ? error.message : String(error));
             return false;
@@ -462,8 +493,12 @@ class DexManager {
 
     async calculatePriceImpact(tokenAddress: string, amount: number): Promise<number> {
         try {
-            // Simplified price impact calculation
-            const priceImpact = (amount / 1000) * 100; // Assume 1000 SOL liquidity
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(tokenAddress, userWallet);
+            
+            // Calculate price impact based on trade size vs pool size
+            const tradeAmount = BigInt(Math.floor(amount * 1e9));
+            const priceImpact = Number(tradeAmount) / Number(swapState.poolQuoteAmount) * 100;
             
             logger.logInfo('dex', 'Price impact calculated', 
                 `Token: ${tokenAddress}, Amount: ${amount} SOL, Impact: ${priceImpact.toFixed(2)}%`
@@ -482,9 +517,15 @@ class DexManager {
         minimumReceived: number;
     }> {
         try {
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(tokenAddress, userWallet);
+            
+            const baseAmount = BigInt(Math.floor(tokenAmount * 1e9));
+            const sellCalculation = this.calculateSellAmount(swapState, baseAmount, this.defaultSlippage);
+            
             const priceImpact = await this.calculatePriceImpact(tokenAddress, tokenAmount);
-            const expectedSol = tokenAmount * 0.001; // Placeholder price
-            const minimumReceived = expectedSol * (1 - TRANSACTION_CONFIG.maxSlippage);
+            const expectedSol = sellCalculation.uiQuote;
+            const minimumReceived = expectedSol * (1 - this.defaultSlippage);
             
             return {
                 expectedSol,
@@ -498,7 +539,28 @@ class DexManager {
     }
 
     async sellPercentageOfHoldings(tokenAddress: string, percentage: number): Promise<string> {
-        throw new Error('Selling not implemented for Pump.fun yet');
+        if (percentage <= 0 || percentage > 100) {
+            throw new Error('Percentage must be between 0 and 100');
+        }
+
+        try {
+            const tokenBalance = await this.getTokenBalance(tokenAddress);
+            const sellAmount = (tokenBalance * percentage) / 100;
+            
+            const params: CopyTradeParams = {
+                tokenMint: tokenAddress,
+                poolKey: tokenAddress,
+                leaderWallet: '',
+                buyAmount: 0,
+                slippage: this.defaultSlippage,
+                isBuy: false
+            };
+            
+            return await this.processCopyTrade(params);
+        } catch (error: any) {
+            logger.logError('dex', 'Sell percentage failed', error.message);
+            throw error;
+        }
     }
 }
 

@@ -175,33 +175,38 @@ app.post('/webhook', async (req: Request, res: Response) => {
                 console.log(`   Type: ${tx.type || 'unknown'}`);
                 console.log(`   Program: ${tx.programId || 'unknown'}`);
                 
-                // Check if this is a buy transaction by analyzing token transfers
-                const isBuyTransaction = await checkIfBuyTransaction(tx);
+                // Extract transaction details for Pump.fun
+                const webhookData = extractWebhookData(tx);
                 
-                if (isBuyTransaction) {
+                // Only process if this is a buy transaction
+                if (webhookData.isBuy) {
                     buyTransactionsCount++;
-                    console.log('🟢 BUY TRANSACTION DETECTED - TRIGGERING BOT');
-                    
-                    // Extract transaction details for Pump.fun
-                    const webhookData = extractWebhookData(tx);
+                    console.log('🟢 BUY TRANSACTION DETECTED - TRIGGERING COPY TRADE');
                     
                     // Extract fixed buy amount from environment or use default
                     const fixedBuyAmount = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1');
                     
-                    logger.logInfo('webhook', 'Executing buy trade', 
-                        `Fixed buy amount: ${fixedBuyAmount} SOL, Token: ${webhookData.outputMint}`
+                    logger.logInfo('webhook', 'Executing copy trade', 
+                        `Fixed buy amount: ${fixedBuyAmount} SOL, Token: ${webhookData.outputMint}, Pool: ${webhookData.poolKey}`
                     );
 
-                    // Process the webhook and execute trade
-                    const signature = await dexManager.processLeaderBuyWebhook(webhookData, fixedBuyAmount);
-                    
-                    logger.logInfo('webhook', 'Buy trade completed', 
-                        `Signature: ${signature}, Token: ${webhookData.outputMint}`
-                    );
+                    try {
+                        // Process the webhook and execute copy trade using Pump Swap SDK
+                        const signature = await dexManager.processLeaderBuyWebhook(webhookData, fixedBuyAmount);
+                        
+                        logger.logInfo('webhook', 'Copy trade completed', 
+                            `Signature: ${signature}, Token: ${webhookData.outputMint}`
+                        );
+                        
+                        console.log(`✅ COPY TRADE SUCCESS: ${signature}`);
+                    } catch (error: any) {
+                        logger.logError('webhook', 'Copy trade failed', error.message);
+                        console.log(`❌ COPY TRADE FAILED: ${error.message}`);
+                    }
                 } else {
                     console.log('🔴 NOT A BUY TRANSACTION - SKIPPING');
                     logger.logInfo('webhook', 'Skipping non-buy transaction', 
-                        `Type: ${tx.type}, Program: ${tx.programId}`
+                        `Type: ${tx.type}, Program: ${tx.programId}, Is Buy: ${webhookData.isBuy}`
                     );
                 }
                 
@@ -236,61 +241,6 @@ app.post('/webhook', async (req: Request, res: Response) => {
     }
 });
 
-/**
- * Check if a transaction is a buy transaction
- */
-async function checkIfBuyTransaction(tx: any): Promise<boolean> {
-    try {
-        const tokenTransfers = tx.tokenTransfers || [];
-        const nativeTransfers = tx.nativeTransfers || [];
-        const targetWallet = process.env.TARGET_WALLET_ADDRESS;
-        
-        if (!targetWallet) {
-            console.log('   ❌ No target wallet configured');
-            return false;
-        }
-        
-        console.log(`   🎯 Target Wallet: ${targetWallet}`);
-        console.log(`   📦 Token Transfers: ${tokenTransfers.length}`);
-        console.log(`   💰 Native Transfers: ${nativeTransfers.length}`);
-        
-        // Find if target wallet is receiving tokens (buying)
-        const targetReceivingTokens = tokenTransfers.some((transfer: any) => 
-            transfer.toUserAccount === targetWallet || transfer.toTokenAccount === targetWallet
-        );
-        
-        // Find if target wallet is sending SOL (paying for tokens)
-        const targetSendingSol = nativeTransfers.some((transfer: any) => 
-            transfer.fromUserAccount === targetWallet
-        );
-        
-        console.log(`   📥 Target Receiving Tokens: ${targetReceivingTokens}`);
-        console.log(`   💸 Target Sending SOL: ${targetSendingSol}`);
-        
-        // It's a buy transaction if target is receiving tokens and sending SOL
-        const isBuy = targetReceivingTokens && targetSendingSol;
-        
-        if (isBuy) {
-            const receivedToken = tokenTransfers.find((transfer: any) => 
-                transfer.toUserAccount === targetWallet || transfer.toTokenAccount === targetWallet
-            );
-            const sentSol = nativeTransfers.find((transfer: any) => 
-                transfer.fromUserAccount === targetWallet
-            );
-            
-            console.log(`   🟢 BUY CONFIRMED:`);
-            console.log(`      Token: ${receivedToken?.mint || 'unknown'}`);
-            console.log(`      Amount: ${(parseInt(sentSol?.amount || '0') / 1e9).toFixed(6)} SOL`);
-        } else {
-            console.log(`   🔴 NOT A BUY TRANSACTION`);
-        }
-        
-        return isBuy;
-    } catch (error) {
-        console.log(`   ❌ ERROR CHECKING BUY TRANSACTION: ${error instanceof Error ? error.message : String(error)}`);
-        return false;
-    }
-}
 
 /**
  * Extract webhook data for Pump.fun processing
@@ -300,28 +250,86 @@ function extractWebhookData(tx: any): any {
     const nativeTransfers = tx.nativeTransfers || [];
     const targetWallet = process.env.TARGET_WALLET_ADDRESS;
     
-    // Find the token being bought
-    const buyTransfer = tokenTransfers.find((transfer: any) => 
+    console.log('\n🔍 EXTRACTING WEBHOOK DATA:');
+    console.log(`   Target Wallet: ${targetWallet}`);
+    console.log(`   Token Transfers: ${tokenTransfers.length}`);
+    console.log(`   Native Transfers: ${nativeTransfers.length}`);
+    
+    // Analyze the transaction to determine if it's a buy or sell
+    const targetBuying = tokenTransfers.some((transfer: any) => 
         transfer.toUserAccount === targetWallet || transfer.toTokenAccount === targetWallet
     );
     
-    // Find the SOL amount spent
-    const solTransfer = nativeTransfers.find((transfer: any) => 
-        transfer.fromUserAccount === targetWallet
+    const targetSelling = tokenTransfers.some((transfer: any) => 
+        transfer.fromUserAccount === targetWallet || transfer.fromTokenAccount === targetWallet
     );
     
+    console.log(`   Target Buying: ${targetBuying}`);
+    console.log(`   Target Selling: ${targetSelling}`);
+    
+    // Determine input and output mints based on transaction direction
+    let inputMint, outputMint, amount;
+    
+    if (targetBuying) {
+        // Target is buying: SOL → Token
+        inputMint = 'So11111111111111111111111111111111111111112'; // WSOL
+        outputMint = tokenTransfers.find((t: any) => 
+            t.toUserAccount === targetWallet || t.toTokenAccount === targetWallet
+        )?.mint || '';
+        
+        // Find the SOL amount spent
+        const solTransfer = nativeTransfers.find((transfer: any) => 
+            transfer.fromUserAccount === targetWallet
+        );
+        amount = solTransfer?.amount || '0';
+        
+        console.log(`   🟢 BUY DETECTED: ${(parseInt(amount) / 1e9).toFixed(6)} SOL → ${outputMint}`);
+    } else if (targetSelling) {
+        // Target is selling: Token → SOL
+        inputMint = tokenTransfers.find((t: any) => 
+            t.fromUserAccount === targetWallet || t.fromTokenAccount === targetWallet
+        )?.mint || '';
+        outputMint = 'So11111111111111111111111111111111111111112'; // WSOL
+        
+        // Find the token amount sold
+        const tokenTransfer = tokenTransfers.find((transfer: any) => 
+            transfer.fromUserAccount === targetWallet || transfer.fromTokenAccount === targetWallet
+        );
+        amount = tokenTransfer?.tokenAmount || '0';
+        
+        console.log(`   🔴 SELL DETECTED: ${inputMint} → ${(parseInt(amount) / 1e9).toFixed(6)} SOL`);
+    } else {
+        console.log(`   ⚠️  UNKNOWN TRANSACTION TYPE`);
+        inputMint = 'So11111111111111111111111111111111111111112';
+        outputMint = '';
+        amount = '0';
+    }
+    
+    // Extract pool key (for Pump.fun, this is typically the token mint)
+    const poolKey = targetBuying ? outputMint : inputMint;
+    
     const webhookData = {
-        inputMint: 'So11111111111111111111111111111111111111112', // WSOL
-        outputMint: buyTransfer?.mint || '',
-        amount: solTransfer?.amount || '0',
+        inputMint,
+        outputMint,
+        amount,
         programId: 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61', // Pump.fun program ID
         signature: tx.signature,
         slot: tx.slot,
         blockTime: tx.timestamp,
         accounts: tx.accountData?.map((acc: any) => acc.account) || [],
         data: tx.instructions?.[0]?.data || '',
-        transaction: tx // Include full transaction data for enhanced processing
+        transaction: tx, // Include full transaction data for enhanced processing
+        poolKey: poolKey, // Add pool key for Pump Swap SDK
+        leaderWallet: targetWallet,
+        isBuy: targetBuying
     };
+    
+    console.log(`   📊 Final Webhook Data:`);
+    console.log(`      Input Mint: ${inputMint}`);
+    console.log(`      Output Mint: ${outputMint}`);
+    console.log(`      Amount: ${amount}`);
+    console.log(`      Pool Key: ${poolKey}`);
+    console.log(`      Is Buy: ${targetBuying}`);
     
     return webhookData;
 }

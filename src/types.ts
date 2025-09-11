@@ -37,6 +37,22 @@ export interface PumpFunWebhook {
     poolAddress?: string; // Pool address if available
 }
 
+// New types for Pump Swap SDK integration
+export interface SwapCalculation {
+    uiQuote: number;
+    base: bigint;
+    quote: bigint;
+}
+
+export interface CopyTradeParams {
+    tokenMint: string;
+    poolKey: string;
+    leaderWallet: string;
+    buyAmount: number; // SOL amount to spend
+    slippage: number;
+    isBuy: boolean; // true for buy, false for sell
+}
+
 export interface PumpFunSwapParams {
     inputMint: string;
     outputMint: string;
