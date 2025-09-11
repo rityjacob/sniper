@@ -87,42 +87,60 @@ class DexManager {
      */
     private isTargetWalletBuying(webhookData: PumpFunWebhook, targetWallet: string): boolean {
         try {
-            if (!webhookData.transaction) {
-                logger.logWarning('dex', 'No transaction data available', 'Cannot determine buy/sell direction');
-                return false;
+            // 1) Trust explicit flag from our webhook extraction if present
+            const explicitIsBuy = (webhookData as any).isBuy;
+            if (typeof explicitIsBuy === 'boolean') {
+                logger.logInfo('dex', 'Buy/Sell determined from webhook flag', `isBuy: ${explicitIsBuy}`);
+                return explicitIsBuy;
             }
 
-            const { postTokenBalances, preTokenBalances } = webhookData.transaction.meta;
-            
-            // Check if target wallet received tokens (buying)
-            const targetReceivedTokens = postTokenBalances.some(balance => 
-                balance.owner === targetWallet && 
-                balance.mint === webhookData.outputMint &&
-                parseFloat(balance.uiTokenAmount.amount) > 0
+            // 2) Heuristic based on mints: WSOL -> token means buy
+            const isHeuristicBuy = webhookData.inputMint === WSOL_MINT.toString() &&
+                                   webhookData.outputMint !== WSOL_MINT.toString();
+            if (isHeuristicBuy) {
+                logger.logInfo('dex', 'Buy/Sell determined by mint heuristic', `Input: ${webhookData.inputMint} -> Output: ${webhookData.outputMint}`);
+                return true;
+            }
+
+            // 3) Fallback to enhanced transaction meta if available
+            const meta = webhookData.transaction?.meta;
+            if (!meta) {
+                logger.logWarning('dex', 'No transaction meta available', 'Falling back to heuristic result');
+                return isHeuristicBuy;
+            }
+
+            const postTokenBalances = meta.postTokenBalances || [];
+            const preTokenBalances = meta.preTokenBalances || [];
+
+            const targetReceivedTokens = postTokenBalances.some((balance: any) =>
+                balance?.owner === targetWallet &&
+                balance?.mint === webhookData.outputMint &&
+                parseFloat(balance?.uiTokenAmount?.amount ?? '0') > 0
             );
 
-            // Check if target wallet sent tokens (selling)
-            const targetSentTokens = preTokenBalances.some(balance => 
-                balance.owner === targetWallet && 
-                balance.mint === webhookData.inputMint &&
-                parseFloat(balance.uiTokenAmount.amount) > 0
+            const targetSentTokens = preTokenBalances.some((balance: any) =>
+                balance?.owner === targetWallet &&
+                balance?.mint === webhookData.inputMint &&
+                parseFloat(balance?.uiTokenAmount?.amount ?? '0') > 0
             );
 
             if (targetReceivedTokens && !targetSentTokens) {
                 logger.logInfo('dex', 'Target wallet is buying', `Wallet: ${targetWallet}`);
                 return true;
-            } else if (targetSentTokens && !targetReceivedTokens) {
+            }
+            if (targetSentTokens && !targetReceivedTokens) {
                 logger.logInfo('dex', 'Target wallet is selling', `Wallet: ${targetWallet}`);
                 return false;
-            } else {
-                logger.logWarning('dex', 'Cannot determine buy/sell direction', 
-                    `Received: ${targetReceivedTokens}, Sent: ${targetSentTokens}`
-                );
-                return false;
             }
+
+            logger.logWarning('dex', 'Ambiguous buy/sell direction from meta', `Received: ${targetReceivedTokens}, Sent: ${targetSentTokens}`);
+            return isHeuristicBuy; // prefer buy if heuristic says so
         } catch (error) {
             logger.logError('dex', 'Error determining buy/sell direction', error instanceof Error ? error.message : String(error));
-            return false;
+            // On error, prefer heuristic decision to avoid false negatives
+            const isHeuristicBuy = webhookData.inputMint === WSOL_MINT.toString() &&
+                                   webhookData.outputMint !== WSOL_MINT.toString();
+            return isHeuristicBuy;
         }
     }
 
