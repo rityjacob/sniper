@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 dotenv.config();
 
 export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
@@ -27,6 +27,8 @@ interface DexConfig {
     minLiquidity: number;
     maxPriceImpact: number;
     trustedDexes: string[];
+    pumpFunProgramId: string;
+    enablePumpFun: boolean;
 }
 
 interface MonitoringConfig {
@@ -62,7 +64,9 @@ export const DEX_CONFIG: DexConfig = {
     jupiterApiUrl: 'https://quote-api.jup.ag/v6/quote',
     minLiquidity: 1000,
     maxPriceImpact: 3,
-    trustedDexes: ['RAYDIUM','ORCA','JUPITER']
+    trustedDexes: ['RAYDIUM','ORCA','JUPITER'],
+    pumpFunProgramId: 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61',
+    enablePumpFun: true
 };
 
 export const MONITORING_CONFIG: MonitoringConfig = {

@@ -1,4 +1,3 @@
-import fetch, { Response } from 'node-fetch';
 import { 
     DEX_CONFIG,
     TRANSACTION_CONFIG,
@@ -6,461 +5,492 @@ import {
 } from './config';
 import { walletManager } from './wallet';
 import { logger } from './utils/logger';
-import { Connection, PublicKey, Transaction, SystemProgram, VersionedTransaction } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAccount, getMint } from '@solana/spl-token';
+import { 
+    Connection, 
+    PublicKey, 
+    Transaction, 
+    SystemProgram, 
+    VersionedTransaction,
+    TransactionInstruction,
+    AccountMeta,
+    sendAndConfirmTransaction
+} from '@solana/web3.js';
+import { 
+    TOKEN_PROGRAM_ID, 
+    ASSOCIATED_TOKEN_PROGRAM_ID, 
+    getAssociatedTokenAddress, 
+    getAccount, 
+    getMint,
+    createAssociatedTokenAccountInstruction,
+    createTransferInstruction
+} from '@solana/spl-token';
+import { 
+    PumpFunWebhook, 
+    PumpFunSwapParams, 
+    SwapResult, 
+    TokenBalance,
+    SwapCalculation,
+    CopyTradeParams
+} from './types';
+import { 
+    PumpAmmSdk,
+    PumpAmmInternalSdk,
+    buyQuoteInputInternal,
+    buyBaseInputInternal,
+    sellBaseInputInternal,
+    sellQuoteInputInternal,
+    PUMP_AMM_PROGRAM_ID_PUBKEY,
+    SwapSolanaState
+} from '@pump-fun/pump-swap-sdk';
 
-// Add AbortController type
-declare global {
-    interface AbortController {
-        signal: AbortSignal;
-        abort(): void;
-    }
-    interface AbortSignal {
-        aborted: boolean;
-    }
-}
-
-interface TokenInfo {
-    address: string;
-    symbol: string;
-    decimals: number;
-}
+// Pump.fun Program ID
+const PUMP_FUN_PROGRAM_ID = new PublicKey('troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61');
+const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 
 class DexManager {
-    private lastApiCall: number = 0;
-    private readonly minApiCallInterval = 100; // 100ms between API calls
+    private connection: Connection;
+    private pumpAmmSdk: PumpAmmSdk;
+    private pumpAmmInternalSdk: PumpAmmInternalSdk;
     private readonly maxRetries = 3;
-    private readonly initialRetryDelay = 1000; // 1 second
-    private readonly timeout = 30000; // 30 seconds
-    private readonly jupiterEndpoints = [
-        'https://quote-api.jup.ag/v6',
-        'https://quote-api.jup.ag/v6',
-        'https://quote-api.jup.ag/v6'
-    ];
-    private currentEndpointIndex = 0;
-    private consecutiveFailures = 0;
-    private readonly maxConsecutiveFailures = 5;
-    private readonly circuitBreakerResetTime = 60000; // 1 minute
-    private lastFailureTime = 0;
+    private readonly retryDelay = 1000; // 1 second
+    private readonly defaultSlippage = 0.01; // 1% slippage
 
-    private async sleep(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
+    constructor() {
+        this.connection = walletManager.getConnection();
+        this.pumpAmmSdk = new PumpAmmSdk(this.connection);
+        this.pumpAmmInternalSdk = new PumpAmmInternalSdk(this.connection);
     }
 
-    private getNextEndpoint(): string {
-        this.currentEndpointIndex = (this.currentEndpointIndex + 1) % this.jupiterEndpoints.length;
-        return this.jupiterEndpoints[this.currentEndpointIndex];
-    }
-
-    private async validateToken(tokenAddress: string): Promise<boolean> {
+    /**
+     * Extract pool key from webhook data
+     * The pool key is typically the token mint address for Pump.fun
+     */
+    private extractPoolKey(webhookData: PumpFunWebhook): string {
         try {
-            const connection = walletManager.getConnection();
-            const mintInfo = await getMint(connection, new PublicKey(tokenAddress));
-            return mintInfo !== null;
+            // For Pump.fun, the pool key is usually the token mint
+            const tokenMint = webhookData.outputMint || webhookData.inputMint;
+            
+            if (!tokenMint || tokenMint === WSOL_MINT.toString()) {
+                throw new Error('Invalid token mint in webhook data');
+            }
+
+            logger.logInfo('dex', 'Pool key extracted', `Token mint: ${tokenMint}`);
+            return tokenMint;
         } catch (error) {
-            logger.logError('dex', 'Invalid token address', error instanceof Error ? error.message : String(error));
+            logger.logError('dex', 'Error extracting pool key', error instanceof Error ? error.message : String(error));
+            throw error;
+        }
+    }
+
+    /**
+     * Determine if target wallet is buying or selling based on transaction data
+     */
+    private isTargetWalletBuying(webhookData: PumpFunWebhook, targetWallet: string): boolean {
+        try {
+            // 1) Trust explicit flag from our webhook extraction if present
+            const explicitIsBuy = (webhookData as any).isBuy;
+            if (typeof explicitIsBuy === 'boolean') {
+                logger.logInfo('dex', 'Buy/Sell determined from webhook flag', `isBuy: ${explicitIsBuy}`);
+                return explicitIsBuy;
+            }
+
+            // 2) Heuristic based on mints: WSOL -> token means buy
+            const isHeuristicBuy = webhookData.inputMint === WSOL_MINT.toString() &&
+                                   webhookData.outputMint !== WSOL_MINT.toString();
+            if (isHeuristicBuy) {
+                logger.logInfo('dex', 'Buy/Sell determined by mint heuristic', `Input: ${webhookData.inputMint} -> Output: ${webhookData.outputMint}`);
+                return true;
+            }
+
+            // 3) Fallback to enhanced transaction meta if available
+            const meta = webhookData.transaction?.meta;
+            if (!meta) {
+                logger.logWarning('dex', 'No transaction meta available', 'Falling back to heuristic result');
+                return isHeuristicBuy;
+            }
+
+            const postTokenBalances = meta.postTokenBalances || [];
+            const preTokenBalances = meta.preTokenBalances || [];
+
+            const targetReceivedTokens = postTokenBalances.some((balance: any) =>
+                balance?.owner === targetWallet &&
+                balance?.mint === webhookData.outputMint &&
+                parseFloat(balance?.uiTokenAmount?.amount ?? '0') > 0
+            );
+
+            const targetSentTokens = preTokenBalances.some((balance: any) =>
+                balance?.owner === targetWallet &&
+                balance?.mint === webhookData.inputMint &&
+                parseFloat(balance?.uiTokenAmount?.amount ?? '0') > 0
+            );
+
+            if (targetReceivedTokens && !targetSentTokens) {
+                logger.logInfo('dex', 'Target wallet is buying', `Wallet: ${targetWallet}`);
+                return true;
+            }
+            if (targetSentTokens && !targetReceivedTokens) {
+                logger.logInfo('dex', 'Target wallet is selling', `Wallet: ${targetWallet}`);
+                return false;
+            }
+
+            logger.logWarning('dex', 'Ambiguous buy/sell direction from meta', `Received: ${targetReceivedTokens}, Sent: ${targetSentTokens}`);
+            return isHeuristicBuy; // prefer buy if heuristic says so
+        } catch (error) {
+            logger.logError('dex', 'Error determining buy/sell direction', error instanceof Error ? error.message : String(error));
+            // On error, prefer heuristic decision to avoid false negatives
+            const isHeuristicBuy = webhookData.inputMint === WSOL_MINT.toString() &&
+                                   webhookData.outputMint !== WSOL_MINT.toString();
+            return isHeuristicBuy;
+        }
+    }
+
+    /**
+     * Get swap state for a pool
+     */
+    private async getSwapState(poolKey: string, user: PublicKey): Promise<SwapSolanaState> {
+        try {
+            logger.logInfo('dex', 'Fetching swap state', `Pool: ${poolKey}`);
+            
+            const swapSolanaState = await this.pumpAmmSdk.swapSolanaState(
+                new PublicKey(poolKey), 
+                user
+            );
+
+            logger.logInfo('dex', 'Swap state fetched', 
+                `Pool: ${poolKey}, Base: ${swapSolanaState.poolBaseAmount.toString()}, Quote: ${swapSolanaState.poolQuoteAmount.toString()}`
+            );
+
+            return swapSolanaState;
+        } catch (error) {
+            logger.logError('dex', 'Error fetching swap state', error instanceof Error ? error.message : String(error));
+            throw error;
+        }
+    }
+
+    /**
+     * Calculate buy amount using Pump Swap SDK
+     */
+    private calculateBuyAmount(
+        swapState: SwapSolanaState, 
+        quoteAmount: bigint, 
+        slippage: number
+    ): SwapCalculation {
+        try {
+            const { globalConfig, pool, poolBaseAmount, poolQuoteAmount } = swapState;
+
+            const result = buyQuoteInputInternal(
+                quoteAmount,
+                slippage,
+                poolBaseAmount,
+                poolQuoteAmount,
+                globalConfig,
+                pool.creator
+            );
+
+            logger.logInfo('dex', 'Buy amount calculated', 
+                `Quote: ${quoteAmount.toString()}, Base: ${result.base.toString()}, Max Quote: ${result.maxQuote.toString()}`
+            );
+
+            return { uiQuote: Number(result.maxQuote) / 1e9, base: result.base, quote: quoteAmount };
+        } catch (error) {
+            logger.logError('dex', 'Error calculating buy amount', error instanceof Error ? error.message : String(error));
+            throw error;
+        }
+    }
+
+    /**
+     * Calculate sell amount using Pump Swap SDK
+     */
+    private calculateSellAmount(
+        swapState: SwapSolanaState, 
+        baseAmount: bigint, 
+        slippage: number
+    ): SwapCalculation {
+        try {
+            const { globalConfig, pool, poolBaseAmount, poolQuoteAmount } = swapState;
+
+            const result = sellBaseInputInternal(
+                baseAmount,
+                slippage,
+                poolBaseAmount,
+                poolQuoteAmount,
+                globalConfig,
+                pool.creator
+            );
+
+            logger.logInfo('dex', 'Sell amount calculated', 
+                `Base: ${baseAmount.toString()}, Min Quote: ${result.minQuote.toString()}, UI Quote: ${result.uiQuote.toString()}`
+            );
+
+            return { uiQuote: Number(result.uiQuote) / 1e9, base: baseAmount, quote: result.minQuote };
+        } catch (error) {
+            logger.logError('dex', 'Error calculating sell amount', error instanceof Error ? error.message : String(error));
+            throw error;
+        }
+    }
+
+    /**
+     * Execute buy transaction using Pump Swap SDK
+     */
+    private async executeBuy(
+        swapState: SwapSolanaState, 
+        quoteAmount: bigint, 
+        slippage: number
+    ): Promise<string> {
+        try {
+            logger.logInfo('dex', 'Executing buy transaction', 
+                `Quote amount: ${quoteAmount.toString()}, Slippage: ${slippage}`
+            );
+
+            // Use buyQuoteInput for buying tokens with SOL
+            const instructions = await this.pumpAmmInternalSdk.buyQuoteInput(
+                swapState,
+                quoteAmount,
+                slippage
+            );
+
+            // Create and send transaction
+            const transaction = new Transaction();
+            transaction.add(...instructions);
+            
+            const signature = await walletManager.signAndSendTransaction(transaction);
+
+            logger.logInfo('dex', 'Buy transaction successful', `Signature: ${signature}`);
+            return signature;
+        } catch (error) {
+            logger.logError('dex', 'Buy transaction failed', error instanceof Error ? error.message : String(error));
+            throw error;
+        }
+    }
+
+    /**
+     * Execute sell transaction using Pump Swap SDK
+     */
+    private async executeSell(
+        swapState: SwapSolanaState, 
+        baseAmount: bigint, 
+        slippage: number
+    ): Promise<string> {
+        try {
+            logger.logInfo('dex', 'Executing sell transaction', 
+                `Base amount: ${baseAmount.toString()}, Slippage: ${slippage}`
+            );
+
+            // Use sellBaseInput for selling tokens for SOL
+            const instructions = await this.pumpAmmInternalSdk.sellBaseInput(
+                swapState,
+                baseAmount,
+                slippage
+            );
+
+            // Create and send transaction
+            const transaction = new Transaction();
+            transaction.add(...instructions);
+            
+            const signature = await walletManager.signAndSendTransaction(transaction);
+
+            logger.logInfo('dex', 'Sell transaction successful', `Signature: ${signature}`);
+            return signature;
+        } catch (error) {
+            logger.logError('dex', 'Sell transaction failed', error instanceof Error ? error.message : String(error));
+            throw error;
+        }
+    }
+
+    /**
+     * Check SOL balance for trade
+     */
+    private async checkSolBalance(requiredAmount: number): Promise<boolean> {
+        try {
+            const balance = await walletManager.getBalance();
+            const requiredBalance = requiredAmount + TRANSACTION_CONFIG.minSolBalance;
+            
+            logger.logInfo('dex', 'Checking SOL balance', 
+                `Current: ${balance} SOL, Required: ${requiredBalance} SOL`
+            );
+
+            if (balance < requiredBalance) {
+                logger.logError('dex', 'Insufficient SOL balance', 
+                    `Have: ${balance} SOL, Need: ${requiredBalance} SOL`
+                );
+                return false;
+            }
+
+            logger.logInfo('dex', 'SOL balance sufficient', `Balance: ${balance} SOL`);
+            return true;
+        } catch (error) {
+            logger.logError('dex', 'Error checking SOL balance', error instanceof Error ? error.message : String(error));
             return false;
         }
     }
 
-    private async rateLimitedFetch(url: string, options?: any, retryCount = 0): Promise<Response> {
-        const now = Date.now();
-        const timeSinceLastCall = now - this.lastApiCall;
-        
-        if (timeSinceLastCall < this.minApiCallInterval) {
-            await this.sleep(this.minApiCallInterval - timeSinceLastCall);
-        }
-
-        // Check circuit breaker
-        if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
-            const timeSinceLastFailure = now - this.lastFailureTime;
-            if (timeSinceLastFailure < this.circuitBreakerResetTime) {
-                throw new Error('Circuit breaker open - too many consecutive failures');
-            }
-            this.consecutiveFailures = 0;
-        }
-        
-        this.lastApiCall = Date.now();
-
+    /**
+     * Main method to process webhook and execute copy trade
+     */
+    async processLeaderBuyWebhook(webhookData: PumpFunWebhook, fixedBuyAmount: number = 0.1): Promise<string> {
         try {
-            const baseUrl = this.getNextEndpoint();
-            const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
-
-            // Validate token address if it's a quote request
-            if (fullUrl.includes('/quote')) {
-                const urlParams = new URL(fullUrl).searchParams;
-                const inputMint = urlParams.get('inputMint');
-                const outputMint = urlParams.get('outputMint');
-                
-                if (inputMint && !inputMint.includes('So11111111111111111111111111111111111111112')) {
-                    const isValid = await this.validateToken(inputMint);
-                    if (!isValid) {
-                        throw new Error('Invalid input token address');
-                    }
-                }
-                if (outputMint && !outputMint.includes('So11111111111111111111111111111111111111112')) {
-                    const isValid = await this.validateToken(outputMint);
-                    if (!isValid) {
-                        throw new Error('Invalid output token address');
-                    }
-                }
-            }
-
-            const response = await fetch(fullUrl, {
-                ...options,
-                timeout: this.timeout,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'User-Agent': 'SniperBot/1.0',
-                    'Connection': 'keep-alive',
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache',
-                    ...options?.headers
-                }
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.logError('dex', `API call failed: ${response.statusText}`, 
-                    `URL: ${fullUrl}\nStatus: ${response.status}\nResponse: ${errorText}`
-                );
-                throw new Error(`API call failed: ${response.statusText} - ${errorText}`);
-            }
+            logger.logInfo('dex', 'Processing leader buy webhook', 'Starting copy trade execution');
             
-            this.consecutiveFailures = 0;
-            return response;
-        } catch (error: any) {
-            this.consecutiveFailures++;
-            this.lastFailureTime = Date.now();
-
-            const isNetworkError = error.code === 'ECONNRESET' || 
-                                 error.code === 'ETIMEDOUT' ||
-                                 error.message.includes('network') ||
-                                 error.message.includes('timeout');
-
-            if (isNetworkError && retryCount < this.maxRetries) {
-                const delay = this.initialRetryDelay * Math.pow(2, retryCount);
-                logger.logWarning('dex', `Retrying API call (${retryCount + 1}/${this.maxRetries})`, 
-                    `URL: ${url}\nDelay: ${delay}ms\nError: ${error.message}`
-                );
-                await this.sleep(delay);
-                return this.rateLimitedFetch(url, options, retryCount + 1);
+            // Extract pool key (token mint)
+            const poolKey = this.extractPoolKey(webhookData);
+            
+            // Get target wallet from environment
+            const targetWallet = process.env.TARGET_WALLET_ADDRESS;
+            if (!targetWallet) {
+                throw new Error('TARGET_WALLET_ADDRESS not configured');
             }
 
-            logger.logError('dex', 'API call failed after retries', 
-                `URL: ${url}\nError: ${error.message}`
+            // Determine if target is buying or selling
+            const isBuying = this.isTargetWalletBuying(webhookData, targetWallet);
+            
+            if (!isBuying) {
+                logger.logInfo('dex', 'Skipping non-buy transaction', 'Target wallet is selling, not buying');
+                throw new Error('Target wallet is selling, not buying');
+            }
+
+            // Get user wallet
+            const userWallet = walletManager.getPublicKey();
+            
+            // Get swap state
+            const swapState = await this.getSwapState(poolKey, userWallet);
+            
+            // Check SOL balance
+            if (!(await this.checkSolBalance(fixedBuyAmount))) {
+                throw new Error('Insufficient SOL balance for trade');
+            }
+
+            // Convert SOL amount to lamports
+            const quoteAmount = BigInt(Math.floor(fixedBuyAmount * 1e9));
+            
+            // Calculate buy amount
+            const buyCalculation = this.calculateBuyAmount(swapState, quoteAmount, this.defaultSlippage);
+            
+            logger.logInfo('dex', 'Trade calculation complete', 
+                `Buying ${buyCalculation.base.toString()} tokens for ${fixedBuyAmount} SOL`
             );
+
+            // Execute buy transaction
+            const signature = await this.executeBuy(swapState, quoteAmount, this.defaultSlippage);
+
+            // Post-trade logging
+            logger.logTransaction(signature, poolKey, fixedBuyAmount.toString(), 'success');
+            logger.logInfo('dex', 'Copy trade completed successfully', 
+                `Signature: ${signature}, Token: ${poolKey}, Amount: ${fixedBuyAmount} SOL`
+            );
+
+            return signature;
+        } catch (error: any) {
+            logger.logError('dex', 'Leader buy webhook processing failed', error.message);
+            logger.logTransaction('pending', webhookData.outputMint || 'unknown', '0', 'failed', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Process copy trade with custom parameters
+     */
+    async processCopyTrade(params: CopyTradeParams): Promise<string> {
+        try {
+            logger.logInfo('dex', 'Processing copy trade', 
+                `Token: ${params.tokenMint}, Amount: ${params.buyAmount} SOL, Is Buy: ${params.isBuy}`
+            );
+
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(params.poolKey, userWallet);
+            
+            if (params.isBuy) {
+                // Check SOL balance for buy
+                if (!(await this.checkSolBalance(params.buyAmount))) {
+                    throw new Error('Insufficient SOL balance for buy');
+                }
+
+                const quoteAmount = BigInt(Math.floor(params.buyAmount * 1e9));
+                const buyCalculation = this.calculateBuyAmount(swapState, quoteAmount, params.slippage);
+                
+                logger.logInfo('dex', 'Buy calculation', 
+                    `Buying ${buyCalculation.base.toString()} tokens for ${params.buyAmount} SOL`
+                );
+
+                return await this.executeBuy(swapState, quoteAmount, params.slippage);
+            } else {
+                // For selling, we need to check token balance instead
+                const tokenBalance = await this.getTokenBalance(params.tokenMint);
+                if (tokenBalance <= 0) {
+                    throw new Error('Insufficient token balance for sell');
+                }
+
+                // Convert percentage of holdings to base amount
+                const baseAmount = BigInt(Math.floor(tokenBalance * 1e9)); // Assuming 9 decimals
+                const sellCalculation = this.calculateSellAmount(swapState, baseAmount, params.slippage);
+                
+                logger.logInfo('dex', 'Sell calculation', 
+                    `Selling ${sellCalculation.base.toString()} tokens for ${sellCalculation.uiQuote} SOL`
+                );
+
+                return await this.executeSell(swapState, baseAmount, params.slippage);
+            }
+        } catch (error: any) {
+            logger.logError('dex', 'Copy trade processing failed', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Legacy methods for backward compatibility
+     */
+    async executeSwap(tokenAddress: string, amount: number, originalPrice?: number): Promise<string> {
+        throw new Error('Use processLeaderBuyWebhook() or processCopyTrade() for Pump.fun trades');
+    }
+
+    async sellToken(tokenAddress: string, tokenAmount: number): Promise<string> {
+        try {
+            const params: CopyTradeParams = {
+                tokenMint: tokenAddress,
+                poolKey: tokenAddress,
+                leaderWallet: '',
+                buyAmount: 0,
+                slippage: this.defaultSlippage,
+                isBuy: false
+            };
+            return await this.processCopyTrade(params);
+        } catch (error: any) {
+            logger.logError('dex', 'Sell token failed', error.message);
             throw error;
         }
     }
 
     async getTokenPrice(tokenAddress: string): Promise<number> {
         try {
-            const response = await this.rateLimitedFetch(
-                `https://lite-api.jup.ag/price/v2?ids=${tokenAddress}`,
-                {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                }
-            );
-            const data = await response.json();
-            const price = data.data?.[tokenAddress]?.price || 0;
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(tokenAddress, userWallet);
             
-            logger.logInfo('dex', 'Token price fetched', 
-                `Token: ${tokenAddress}, Price: ${price} SOL`
-            );
+            // Calculate price based on pool reserves
+            const price = Number(swapState.poolQuoteAmount) / Number(swapState.poolBaseAmount);
             
+            logger.logInfo('dex', 'Token price calculated', `Token: ${tokenAddress}, Price: ${price}`);
             return price;
         } catch (error: any) {
-            console.error('🔴 Debug - Token Price Error:');
-            console.dir(error, { depth: null });
             logger.logError('dex', 'Failed to get token price', error.message);
-            throw error;
-        }
-    }
-
-    private async getTokenLiquidity(tokenAddress: string): Promise<number> {
-        try {
-            const response = await this.rateLimitedFetch(
-                `${DEX_CONFIG.jupiterApiUrl}/liquidity?token=${tokenAddress}`
-            );
-            const data = await response.json();
-            const liquidity = data.liquidity || 0;
-            
-            logger.logInfo('dex', 'Token liquidity fetched', 
-                `Token: ${tokenAddress}, Liquidity: ${liquidity} SOL`
-            );
-            
-            return liquidity;
-        } catch (error: any) {
-            logger.logError('dex', 'Error fetching token liquidity', error.message);
             return 0;
         }
     }
 
     async checkLiquidity(tokenAddress: string): Promise<boolean> {
         try {
-            const liquidity = await this.getTokenLiquidity(tokenAddress);
-            // Log liquidity for debugging but don't restrict based on it
-            logger.logInfo('dex', 'Token liquidity', 
-                `Token: ${tokenAddress}, Liquidity: ${liquidity} SOL`
-            );
-            return true; // Always return true regardless of liquidity
-        } catch (error: any) {
-            logger.logError('dex', 'Error checking liquidity', error.message);
-            return true; // Return true even on error to not block trades
-        }
-    }
-    
-    async executeSwap(tokenAddress: string, amount: number, originalPrice?: number): Promise<string> {
-        let quoteBody: any;
-        let swapBody: any;
-        
-        try {
-            logger.logInfo('dex', 'Executing swap', 
-                `Token: ${tokenAddress}, Amount: ${amount} SOL`
-            );
-
-            // Check wallet balance first
-            const balance = await walletManager.getBalance();
-            const requiredBalance = amount + TRANSACTION_CONFIG.minSolBalance;
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(tokenAddress, userWallet);
             
-            if (balance < requiredBalance) {
-                const error = `Insufficient balance. Have: ${balance} SOL, Need: ${requiredBalance} SOL`;
-                logger.logError('dex', 'Insufficient balance for swap', error);
-                throw new Error(error);
-            }
-
-            // Check price movement if original price is provided
-            if (originalPrice) {
-                const currentPrice = await this.getTokenPrice(tokenAddress);
-                const priceChange = ((currentPrice - originalPrice) / originalPrice) * 100;
-                
-                logger.logInfo('dex', 'Price movement check', 
-                    `Original: ${originalPrice}, Current: ${currentPrice}, Change: ${priceChange.toFixed(2)}%`
-                );
-
-                if (priceChange >= 100) {
-                    const error = `Price has moved too much (${priceChange.toFixed(2)}%). Skipping trade.`;
-                    logger.logWarning('dex', 'Trade skipped due to price movement', error);
-                    throw new Error(error);
-                }
-            }
-
-            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
-            const wallet = walletManager.getCurrentWallet();
-
-            // Get quote from Jupiter
-            const quoteParams = new URLSearchParams({
-                inputMint: 'So11111111111111111111111111111111111111112', // SOL
-                outputMint: tokenAddress,
-                amount: Math.floor(amount * 1e9).toString(), // Convert SOL to lamports
-                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
-                onlyDirectRoutes: 'false',
-                asLegacyTransaction: 'false' // Use versioned transactions
-            });
-
-            const quoteResponse = await this.rateLimitedFetch(
-                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
-                {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                }
+            // Check if pool has sufficient liquidity
+            const hasLiquidity = swapState.poolBaseAmount > 0n && swapState.poolQuoteAmount > 0n;
+            
+            logger.logInfo('dex', 'Liquidity check', 
+                `Token: ${tokenAddress}, Has liquidity: ${hasLiquidity}`
             );
             
-            const quote = await quoteResponse.json();
-            
-            if (!quote.outAmount || !quote.inAmount) {
-                console.error('Debug - Invalid Quote Response:', quote);
-                throw new Error('Invalid quote received from Jupiter');
-            }
-
-            // Get swap transaction with optimized settings for speed
-            swapBody = {
-                userPublicKey: walletManager.getPublicKey().toString(),
-                quoteResponse: quote,
-                // Add high priority fee to get transaction processed faster
-                prioritizationFeeLamports: {
-                    priorityLevelWithMaxLamports: {
-                        maxLamports: TRANSACTION_CONFIG.priorityFee,
-                        priorityLevel: "veryHigh"
-                    }
-                },
-                // Optimize compute unit settings
-                dynamicComputeUnitLimit: true,
-                // Use legacy transaction for faster processing
-                asLegacyTransaction: true,
-                // Skip token account creation if possible
-                skipUserAccountsCheck: true
-            };
-
-            console.log('Debug - Swap Request:', {
-                url: 'https://quote-api.jup.ag/v6/swap',
-                body: swapBody
-            });
-
-            const swapResponse = await this.rateLimitedFetch(
-                'https://quote-api.jup.ag/v6/swap',
-                {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(swapBody)
-                }
-            );
-            
-            const swapTransaction = await swapResponse.json();
-            
-            if (!swapTransaction.swapTransaction) {
-                console.error('Debug - Invalid Swap Response:', swapTransaction);
-                throw new Error('Invalid swap transaction received from Jupiter');
-            }
-
-            logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
-            
-            // Decode and execute the swap using VersionedTransaction
-            const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
-            const transaction = VersionedTransaction.deserialize(transactionBuffer);
-            
-            // Execute the swap with retry logic
-            let retries = 0;
-            while (retries < TRANSACTION_CONFIG.maxRetries) {
-                try {
-                    // Send transaction with high priority
-                    const signature = await walletManager.signAndSendTransaction(transaction);
-                    logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
-                    return signature;
-                } catch (error: any) {
-                    if (error.message.includes('0x1771') && retries < TRANSACTION_CONFIG.maxRetries - 1) {
-                        retries++;
-                        await new Promise(resolve => setTimeout(resolve, 50)); // Reduced delay for faster retry
-                        continue;
-                    }
-                    throw error;
-                }
-            }
-            
-            throw new Error('Max retries exceeded for swap execution');
-        } catch (error: any) {
-            console.error('Debug - Swap Error:', {
-                error: error.message,
-                tokenAddress,
-                amount,
-                status: error.status,
-                response: error.response,
-                logs: error.logs,
-                requestBody: {
-                    quote: quoteBody,
-                    swap: swapBody
-                }
-            });
-            const errorMessage = error.message || 'Unknown error';
-            logger.logTransaction('pending', tokenAddress, amount.toString(), 'failed', errorMessage);
-            throw error;
-        }
-    }
-
-    public async calculatePriceImpact(
-        tokenAddress: string,
-        amount: number
-    ): Promise<number> {
-        try {
-            // For devnet testing, simulate a price impact
-            // This is a simplified model - in production, you'd use real DEX data
-            const simulatedLiquidity = 1000; // Simulated liquidity in SOL
-            const priceImpact = (amount / simulatedLiquidity) * 100;
-            
-            logger.logInfo('dex', 'Price impact calculated', 
-                `Token: ${tokenAddress}, Amount: ${amount} SOL, Impact: ${priceImpact.toFixed(2)}%`
-            );
-            
-            return priceImpact;
-        } catch (error: any) {
-            logger.logError('dex', 'Error calculating price impact', error.message);
-            throw error;
-        }
-    }
-
-    async sellToken(tokenAddress: string, tokenAmount: number): Promise<string> {
-        try {
-            // Check balance before selling
-            const balance = await this.getTokenBalance(tokenAddress);
-            if (balance < tokenAmount) {
-                throw new Error(`Insufficient balance. Have: ${balance}, Trying to sell: ${tokenAmount}`);
-            }
-
-            logger.logInfo('dex', 'Executing sell', 
-                `Token: ${tokenAddress}, Amount: ${tokenAmount} tokens`
-            );
-
-            const mintInfo = await getMint(walletManager.getConnection(), new PublicKey(tokenAddress));
-            const amountRaw = Math.floor(tokenAmount * Math.pow(10, mintInfo.decimals)).toString();
-
-            // Get quote from Jupiter (use GET, not POST)
-            const quoteParams = new URLSearchParams({
-                inputMint: tokenAddress,
-                outputMint: 'So11111111111111111111111111111111111111112', // SOL
-                amount: amountRaw,
-                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
-                onlyDirectRoutes: 'false',
-                asLegacyTransaction: 'false'
-            });
-            const quoteResponse = await this.rateLimitedFetch(
-                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
-                {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                }
-            );
-            
-            const quote = await quoteResponse.json();
-            logger.logInfo('dex', 'Sell quote received', JSON.stringify(quote, null, 2));
-            
-            // Validate quote
-            if (!quote.outAmount || !quote.inAmount) {
-                throw new Error('Invalid quote received from Jupiter');
-            }
-
-            // Get swap transaction
-            const swapResponse = await this.rateLimitedFetch(
-                'https://quote-api.jup.ag/v6/swap',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        quoteResponse: quote,
-                        userPublicKey: walletManager.getPublicKey().toString(),
-                        wrapUnwrapSOL: true,
-                        computeUnitPriceMicroLamports: TRANSACTION_CONFIG.computeUnitPrice,
-                        computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
-                        asLegacyTransaction: true
-                    })
-                }
-            );
-            
-            const swapTransaction = await swapResponse.json();
-            
-            if (!swapTransaction.swapTransaction) {
-                throw new Error('Invalid swap transaction received from Jupiter');
-            }
-
-            logger.logInfo('dex', 'Sell transaction prepared', 'Executing transaction');
-            
-            // Decode and execute the swap using VersionedTransaction
-            const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
-            const transaction = VersionedTransaction.deserialize(transactionBuffer);
-            
-            // Execute the swap
-            const signature = await walletManager.signAndSendTransaction(transaction);
-            
-            logger.logTransaction(signature, tokenAddress, tokenAmount.toString(), 'success');
-            return signature;
-        } catch (error: any) {
-            logger.logTransaction('pending', tokenAddress, tokenAmount.toString(), 'failed', error.message);
-            throw error;
+            return hasLiquidity;
+        } catch (error) {
+            logger.logError('dex', 'Error checking liquidity', error instanceof Error ? error.message : String(error));
+            return false;
         }
     }
 
@@ -479,38 +509,46 @@ class DexManager {
         }
     }
 
+    async calculatePriceImpact(tokenAddress: string, amount: number): Promise<number> {
+        try {
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(tokenAddress, userWallet);
+            
+            // Calculate price impact based on trade size vs pool size
+            const tradeAmount = BigInt(Math.floor(amount * 1e9));
+            const priceImpact = Number(tradeAmount) / Number(swapState.poolQuoteAmount) * 100;
+            
+            logger.logInfo('dex', 'Price impact calculated', 
+                `Token: ${tokenAddress}, Amount: ${amount} SOL, Impact: ${priceImpact.toFixed(2)}%`
+            );
+            
+            return priceImpact;
+        } catch (error: any) {
+            logger.logError('dex', 'Error calculating price impact', error.message);
+            return 0;
+        }
+    }
+
     async calculateExpectedReturn(tokenAddress: string, tokenAmount: number): Promise<{
         expectedSol: number;
         priceImpact: number;
         minimumReceived: number;
     }> {
         try {
-            const mintInfo = await getMint(walletManager.getConnection(), new PublicKey(tokenAddress));
-            const amountRaw = Math.floor(tokenAmount * Math.pow(10, mintInfo.decimals)).toString();
-            const quoteParams = new URLSearchParams({
-                inputMint: tokenAddress,
-                outputMint: 'So11111111111111111111111111111111111111112',
-                amount: amountRaw,
-                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
-                onlyDirectRoutes: 'false',
-                asLegacyTransaction: 'false'
-            });
-            const quoteResponse = await this.rateLimitedFetch(
-                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
-                {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                }
-            );
+            const userWallet = walletManager.getPublicKey();
+            const swapState = await this.getSwapState(tokenAddress, userWallet);
             
-            const quote = await quoteResponse.json();
+            const baseAmount = BigInt(Math.floor(tokenAmount * 1e9));
+            const sellCalculation = this.calculateSellAmount(swapState, baseAmount, this.defaultSlippage);
+            
             const priceImpact = await this.calculatePriceImpact(tokenAddress, tokenAmount);
-            const minimumReceived = quote.outAmount * (1 - TRANSACTION_CONFIG.maxSlippage);
+            const expectedSol = sellCalculation.uiQuote;
+            const minimumReceived = expectedSol * (1 - this.defaultSlippage);
             
             return {
-                expectedSol: quote.outAmount / 1e9, // Convert lamports to SOL
+                expectedSol,
                 priceImpact,
-                minimumReceived: minimumReceived / 1e9
+                minimumReceived
             };
         } catch (error: any) {
             logger.logError('dex', 'Error calculating expected return', error.message);
@@ -519,26 +557,26 @@ class DexManager {
     }
 
     async sellPercentageOfHoldings(tokenAddress: string, percentage: number): Promise<string> {
+        if (percentage <= 0 || percentage > 100) {
+            throw new Error('Percentage must be between 0 and 100');
+        }
+
         try {
-            if (percentage <= 0 || percentage > 100) {
-                throw new Error('Percentage must be between 0 and 100');
-            }
-
-            const balance = await this.getTokenBalance(tokenAddress);
-            const amountToSell = balance * (percentage / 100);
-
-            if (amountToSell <= 0) {
-                throw new Error('No tokens available to sell');
-            }
-
-            const expectedReturn = await this.calculateExpectedReturn(tokenAddress, amountToSell);
-            logger.logInfo('dex', 'Selling percentage of holdings', 
-                `Token: ${tokenAddress}, Percentage: ${percentage}%, Amount: ${amountToSell}, Expected SOL: ${expectedReturn.expectedSol}`
-            );
-
-            return await this.sellToken(tokenAddress, amountToSell);
+            const tokenBalance = await this.getTokenBalance(tokenAddress);
+            const sellAmount = (tokenBalance * percentage) / 100;
+            
+            const params: CopyTradeParams = {
+                tokenMint: tokenAddress,
+                poolKey: tokenAddress,
+                leaderWallet: '',
+                buyAmount: 0,
+                slippage: this.defaultSlippage,
+                isBuy: false
+            };
+            
+            return await this.processCopyTrade(params);
         } catch (error: any) {
-            logger.logError('dex', 'Error selling percentage of holdings', error.message);
+            logger.logError('dex', 'Sell percentage failed', error.message);
             throw error;
         }
     }
