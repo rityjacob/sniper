@@ -22,10 +22,11 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS;
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
+const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1'); // Default 0.1 SOL
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
-  process.exit(1);
+    process.exit(1);
 }
 
 if (!BOT_WALLET_SECRET) {
@@ -40,6 +41,7 @@ const pumpAmmSdk = new PumpAmmSdk();
 
 console.log('🚀 Bot wallet initialized:', botWallet.publicKey.toString());
 console.log('🎯 Target wallet:', TARGET_WALLET_ADDRESS);
+console.log('💰 Fixed buy amount:', FIXED_BUY_AMOUNT, 'SOL');
 
 // 3. Create Webhook Endpoint
 app.post('/webhook', async (req: Request, res: Response) => {
@@ -93,10 +95,11 @@ async function processWebhookAsync(webhookData: any) {
         
         console.log('🟢 BUY TRANSACTION DETECTED!');
         console.log(`   Token: ${buyInfo.tokenMint}`);
-        console.log(`   Amount: ${buyInfo.solAmount} SOL`);
+        console.log(`   Target spent: ${buyInfo.solAmount} SOL`);
+        console.log(`   Bot will buy: ${FIXED_BUY_AMOUNT} SOL (fixed amount)`);
         
-        // 6. Execute Buy via Pump.fun
-        await executePumpFunBuy(buyInfo.tokenMint, buyInfo.solAmount);
+        // 6. Execute Buy via Pump.fun with fixed amount
+        await executePumpFunBuy(buyInfo.tokenMint, FIXED_BUY_AMOUNT);
         
     } catch (error) {
         console.error('❌ Error processing webhook:', error);
@@ -185,11 +188,12 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
-        res.status(200).json({
+    res.status(200).json({
         status: 'healthy',
-            timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         botWallet: botWallet.publicKey.toString(),
         targetWallet: TARGET_WALLET_ADDRESS,
+        fixedBuyAmount: FIXED_BUY_AMOUNT,
         rpcUrl: RPC_URL
     });
 });
@@ -211,6 +215,7 @@ app.listen(PORT, () => {
     console.log(`❤️  Health check: GET /health`);
     console.log(`🎯 Target wallet: ${TARGET_WALLET_ADDRESS}`);
     console.log(`🤖 Bot wallet: ${botWallet.publicKey.toString()}`);
+    console.log(`💰 Fixed buy amount: ${FIXED_BUY_AMOUNT} SOL`);
 });
 
 export default app;
