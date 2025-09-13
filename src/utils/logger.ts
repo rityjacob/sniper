@@ -1,54 +1,23 @@
-import * as fs from 'fs';
-import * as path from 'path';
-
-interface TransactionLog {
-    timestamp: string;
-    signature: string;
-    tokenAddress: string;
-    amount: string;
-    status: 'success' | 'failed';
-    error?: string;
-    priceImpact?: number;
-    liquidity?: number;
-}
-
-interface EventLog {
-    timestamp: string;
-    type: 'error' | 'warning' | 'info';
-    category: 'network' | 'dex' | 'wallet' | 'safety' | 'system';
-    message: string;
-    details?: string;
-}
-
-class Logger {
-    logInfo(category: string, message: string, details?: string) {
-        console.log(`[INFO][${category}] ${message}`);
-        if (details) {
-            console.log(`Details: ${details}`);
-        }
+export class Logger {
+    static logInfo(module: string, message: string, details?: string) {
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] [${module.toUpperCase()}] ${message}${details ? ` - ${details}` : ''}`);
     }
 
-    logWarning(category: string, message: string, details?: string) {
-        console.warn(`[WARNING][${category}] ${message}`);
-        if (details) {
-            console.warn(`Details: ${details}`);
-        }
+    static logError(module: string, message: string, error?: string) {
+        const timestamp = new Date().toISOString();
+        console.error(`[${timestamp}] [${module.toUpperCase()}] ❌ ${message}${error ? ` - ${error}` : ''}`);
     }
 
-    logError(category: string, message: string, details?: string) {
-        console.error(`[ERROR][${category}] ${message}`);
-        if (details) {
-            console.error(`Details: ${details}`);
-        }
+    static logWarning(module: string, message: string, details?: string) {
+        const timestamp = new Date().toISOString();
+        console.warn(`[${timestamp}] [${module.toUpperCase()}] ⚠️  ${message}${details ? ` - ${details}` : ''}`);
     }
 
-    logTransaction(signature: string, tokenAddress: string, amount: string, status: 'success' | 'failed', error?: string) {
-        console.log(`[TRANSACTION] ${status.toUpperCase()}: ${signature} - ${tokenAddress} - ${amount} SOL`);
-        if (error) {
-            console.error(`Error: ${error}`);
-        }
+    static logSuccess(module: string, message: string, details?: string) {
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] [${module.toUpperCase()}] ✅ ${message}${details ? ` - ${details}` : ''}`);
     }
 }
 
-// Export a singleton instance
-export const logger = new Logger(); 
+export const logger = Logger;

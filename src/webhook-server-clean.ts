@@ -2,7 +2,9 @@ import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
 import { Connection, PublicKey, Keypair, Transaction } from '@solana/web3.js';
 import { 
-    PumpAmmSdk
+    PumpAmmSdk,
+    PumpAmmInternalSdk,
+    buyQuoteInputInternal
 } from '@pump-fun/pump-swap-sdk';
 import bs58 from 'bs58';
 import * as dotenv from 'dotenv';
@@ -25,7 +27,7 @@ const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
-  process.exit(1);
+    process.exit(1);
 }
 
 if (!BOT_WALLET_SECRET) {
@@ -36,7 +38,8 @@ if (!BOT_WALLET_SECRET) {
 // 2. Initialize Clients
 const connection = new Connection(RPC_URL);
 const botWallet = Keypair.fromSecretKey(bs58.decode(BOT_WALLET_SECRET));
-const pumpAmmSdk = new PumpAmmSdk();
+const pumpAmmSdk = new PumpAmmSdk(connection);
+const pumpAmmInternalSdk = new PumpAmmInternalSdk(connection);
 
 console.log('🚀 Bot wallet initialized:', botWallet.publicKey.toString());
 console.log('🎯 Target wallet:', TARGET_WALLET_ADDRESS);
@@ -137,8 +140,8 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
     
     // Look for SOL transfers where target wallet is sending SOL
     const targetSendingSol = nativeTransfers.find(transfer => 
-            transfer.fromUserAccount === targetWallet
-        );
+        transfer.fromUserAccount === targetWallet
+    );
     
     if (targetReceivingTokens && targetSendingSol) {
         // This looks like a buy: target sent SOL and received tokens
@@ -163,19 +166,71 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
     try {
         console.log(`🚀 Executing Pump.fun buy: ${amountSol} SOL for token ${tokenMint}`);
         
-        // For now, we'll implement a basic buy using the PumpAmmSdk
-        // The exact API may vary, so this is a placeholder implementation
-        console.log('📊 Token mint:', tokenMint);
-        console.log('💰 Amount SOL:', amountSol);
-        console.log('🤖 Bot wallet:', botWallet.publicKey.toString());
+        // Get swap state for the token
+        const swapState = await pumpAmmSdk.swapSolanaState(
+            new PublicKey(tokenMint),
+            botWallet.publicKey
+        );
         
-        // TODO: Implement actual buy logic once we confirm the correct SDK API
-        // This would typically involve:
-        // 1. Getting swap state for the token
-        // 2. Calculating buy amount
-        // 3. Creating and sending transaction
+        console.log('📊 Swap state retrieved:', {
+            poolBaseAmount: swapState.poolBaseAmount.toString(),
+            poolQuoteAmount: swapState.poolQuoteAmount.toString()
+        });
         
-        console.log('⚠️  Buy execution placeholder - implement actual buy logic');
+        // Convert SOL amount to lamports
+        const quoteAmount = BigInt(Math.floor(amountSol * 1e9));
+        const slippage = 0.01; // 1% slippage
+        
+        // Calculate buy amount
+        const buyCalculation = buyQuoteInputInternal(
+            quoteAmount,
+            slippage,
+            swapState.poolBaseAmount,
+            swapState.poolQuoteAmount,
+            swapState.globalConfig,
+            swapState.pool.creator
+        );
+        
+        console.log('💰 Buy calculation:', {
+            quoteAmount: quoteAmount.toString(),
+            baseAmount: buyCalculation.base.toString(),
+            maxQuote: buyCalculation.maxQuote.toString()
+        });
+        
+        // Execute buy transaction
+        const instructions = await pumpAmmInternalSdk.buyQuoteInput(
+            swapState,
+            quoteAmount,
+            slippage
+        );
+        
+        // Create and send transaction
+        const transaction = new Transaction();
+        transaction.add(...instructions);
+        
+        // Get latest blockhash
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = botWallet.publicKey;
+        
+        // Sign and send transaction
+        transaction.sign(botWallet);
+        
+        const signature = await connection.sendRawTransaction(transaction.serialize(), {
+            skipPreflight: false,
+            maxRetries: 3
+        });
+        
+        console.log('✅ Buy transaction sent:', signature);
+        
+        // Wait for confirmation
+        const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+        
+        if (confirmation.value.err) {
+            throw new Error('Transaction failed confirmation');
+        }
+        
+        console.log('🎉 Buy transaction confirmed:', signature);
         
     } catch (error) {
         console.error('❌ Pump.fun buy failed:', error);
@@ -185,9 +240,9 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
-        res.status(200).json({
+    res.status(200).json({
         status: 'healthy',
-            timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         botWallet: botWallet.publicKey.toString(),
         targetWallet: TARGET_WALLET_ADDRESS,
         rpcUrl: RPC_URL
@@ -214,5 +269,3 @@ app.listen(PORT, () => {
 });
 
 export default app;
-
-

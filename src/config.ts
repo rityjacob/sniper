@@ -2,84 +2,14 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-export const WS_URL = process.env.SOLANA_WS_URL || 'wss://api.mainnet-beta.solana.com';
-export const NETWORK = 'mainnet-beta';
-
 export const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS || '';
-export const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY || '';
+export const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET || '';
 
-interface TransactionConfig {
-    maxSlippage: number;
-    priorityFee: number;
-    tip: number;
-    maxRetries: number;
-    timeout: number;
-    minSolBalance: number;
-    maxSolPerTrade: number;
-    percentageOfTargetTrade: number;
-    maxBuyAmount: number;
-    computeUnitLimit: number;
-    computeUnitPrice: number;
-}
+// Pump.fun configuration
+export const PUMP_FUN_PROGRAM_ID = 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61';
+export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 
-interface DexConfig {
-    jupiterApiUrl: string;
-    minLiquidity: number;
-    maxPriceImpact: number;
-    trustedDexes: string[];
-    pumpFunProgramId: string;
-    enablePumpFun: boolean;
-}
-
-interface MonitoringConfig {
-    wsReconnectInterval: number;
-    maxWsReconnectAttempts: number;
-    logLevel: string;
-    enableDetailedLogging: boolean;
-}
-
-interface SafetyConfig {
-    maxTradesPerHour: number;
-    tradeCooldown: number;
-    maxDailyTradeValue: number;
-    blacklistedTokens: string[];
-    enableEmergencyStop: boolean;
-}
-
-export const TRANSACTION_CONFIG: TransactionConfig = {
-    maxSlippage: 0.25,
-    priorityFee: 1000000,
-    tip: 500000,
-    maxRetries: 2,
-    timeout: 10000,
-    minSolBalance: Number(process.env.MIN_SOL_BALANCE) || 0.0001,
-    maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 0.1,
-    percentageOfTargetTrade: Number(process.env.PERCENTAGE_OF_TARGET_TRADE) || 1,
-    maxBuyAmount: 1,
-    computeUnitLimit: 1400000,
-    computeUnitPrice: 5000,
-};
-
-export const DEX_CONFIG: DexConfig = {
-    jupiterApiUrl: 'https://quote-api.jup.ag/v6/quote',
-    minLiquidity: 1000,
-    maxPriceImpact: 3,
-    trustedDexes: ['RAYDIUM','ORCA','JUPITER'],
-    pumpFunProgramId: 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61',
-    enablePumpFun: true
-};
-
-export const MONITORING_CONFIG: MonitoringConfig = {
-    wsReconnectInterval: 50000,
-    maxWsReconnectAttempts: 10,
-    logLevel: 'info',
-    enableDetailedLogging: true,
-};
-
-export const SAFETY_CONFIG: SafetyConfig = {
-    maxTradesPerHour: 3,
-    tradeCooldown: 60000,
-    maxDailyTradeValue: 5,
-    blacklistedTokens: [],
-    enableEmergencyStop: true
-};
+// Trading configuration
+export const DEFAULT_SLIPPAGE = 0.01; // 1%
+export const MAX_RETRIES = 3;
+export const MIN_SOL_BALANCE = 0.001; // Minimum SOL to keep in wallet
