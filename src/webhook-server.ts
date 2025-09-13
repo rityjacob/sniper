@@ -208,6 +208,33 @@ app.use((error: any, req: Request, res: Response, next: any) => {
     });
 });
 
+// Self-ping function to keep server awake on Render
+function startSelfPing() {
+    const pingInterval = 14 * 60 * 1000; // 14 minutes in milliseconds
+    const serverUrl = process.env.RENDER_EXTERNAL_URL || `https://sniper-tup2.onrender.com`;
+    
+    const pingServer = async () => {
+        try {
+            const response = await fetch(`${serverUrl}/health`);
+            if (response.ok) {
+                console.log(`✅ Self-ping successful at ${new Date().toISOString()}`);
+            } else {
+                console.log(`⚠️  Self-ping failed with status: ${response.status}`);
+            }
+        } catch (error) {
+            console.error(`❌ Self-ping error:`, error);
+        }
+    };
+
+    // Start the ping interval
+    setInterval(pingServer, pingInterval);
+    
+    // Initial ping
+    pingServer();
+    
+    console.log(`🔄 Self-ping started - pinging every ${pingInterval / 1000 / 60} minutes`);
+}
+
 // Start server
 app.listen(PORT, () => {
     console.log(`🚀 Pump.fun Sniper Bot running on port ${PORT}`);
@@ -216,6 +243,9 @@ app.listen(PORT, () => {
     console.log(`🎯 Target wallet: ${TARGET_WALLET_ADDRESS}`);
     console.log(`🤖 Bot wallet: ${botWallet.publicKey.toString()}`);
     console.log(`💰 Fixed buy amount: ${FIXED_BUY_AMOUNT} SOL`);
+    
+    // Start self-ping to keep server awake
+    startSelfPing();
 });
 
 export default app;
