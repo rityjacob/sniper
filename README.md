@@ -1,79 +1,82 @@
-# Sniper - Simple Copy Trading Bot
+# Pump.fun Copy Trading Bot
 
-A streamlined copy trading bot for Solana that receives webhooks from Helius and executes buy trades automatically.
+A clean, focused webhook server that detects buy transactions from a target wallet via Helius webhooks and executes copy trades using the Pump Swap SDK.
 
 ## Features
 
-- **Webhook Integration**: Receives transaction data from Helius webhooks
-- **Copy Trading**: Automatically copies buy transactions from a target wallet
-- **Jupiter DEX Integration**: Uses Jupiter for optimal swap execution
-- **Console Logging**: All logs are output to console for easy monitoring
-- **Health Check**: Built-in health endpoint for monitoring
+- **Webhook Server**: Receives Helius webhook payloads
+- **Buy Detection**: Analyzes transactions to detect when target wallet is buying tokens
+- **Copy Trading**: Executes identical buy transactions using Pump.fun SDK
+- **Async Processing**: Responds to webhooks quickly and processes trades asynchronously
+- **Error Handling**: Comprehensive logging and error handling
 
 ## Setup
 
-### Environment Variables
+1. **Install Dependencies**
+   ```bash
+   npm install
+   ```
 
-Set these environment variables in your Render deployment:
+2. **Environment Variables**
+   Create a `.env` file with:
+   ```
+   SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+   TARGET_WALLET_ADDRESS=your_target_wallet_address_here
+   BOT_WALLET_SECRET=your_bot_wallet_secret_key_here
+   PORT=3000
+   ```
 
-- `TARGET_WALLET_ADDRESS`: The wallet address to copy trades from
-- `WALLET_PRIVATE_KEY`: Your bot's wallet private key
-- `SOLANA_RPC_URL`: Solana RPC endpoint (defaults to mainnet)
-- `HELIUS_API_KEY`: Your Helius API key (for webhook setup)
-
-### Helius Webhook Configuration
-
-1. Go to your Helius dashboard
-2. Create a new webhook with these settings:
-   - **Network**: mainnet
-   - **Webhook Type**: enhanced
-   - **Transaction Type(s)**: SWAP
-   - **Webhook URL**: `https://your-app-name.onrender.com/webhook`
-   - **Account Addresses**: Add your target wallet address
+3. **Run the Bot**
+   ```bash
+   # Development
+   npm run dev
+   
+   # Production
+   npm run build
+   npm start
+   ```
 
 ## How It Works
 
-1. **Webhook Reception**: The bot receives SWAP events from Helius
-2. **Target Detection**: Checks if the target wallet is buying tokens
-3. **Copy Execution**: Executes the same buy transaction using Jupiter DEX
-4. **Logging**: All actions are logged to console for monitoring
+1. **Webhook Reception**: Receives Helius webhook payloads at `POST /webhook`
+2. **Transaction Analysis**: Extracts token transfers and native transfers from the webhook
+3. **Target Detection**: Checks if the target wallet is involved in the transaction
+4. **Buy Detection**: Determines if the target wallet is buying tokens (sending SOL, receiving tokens)
+5. **Copy Trade Execution**: Uses Pump Swap SDK to execute the same buy transaction
+6. **Confirmation**: Waits for transaction confirmation and logs results
 
 ## API Endpoints
 
-- `POST /webhook`: Receives Helius webhook data
-- `GET /health`: Health check endpoint
+- `POST /webhook` - Main webhook endpoint for Helius
+- `GET /health` - Health check endpoint
 
-## Development
+## Dependencies
 
-```bash
-# Install dependencies
-npm install
+- `@pump-fun/pump-swap-sdk` - Pump.fun trading SDK
+- `@solana/web3.js` - Solana blockchain interaction
+- `express` - Web server
+- `body-parser` - Request parsing
+- `bs58` - Base58 encoding for wallet keys
+- `dotenv` - Environment variable management
 
-# Build the project
-npm run build
+## Configuration
 
-# Start the server
-npm start
+The bot requires three environment variables:
 
-# Development mode with auto-rebuild
-npm run dev
-```
+- `SOLANA_RPC_URL`: Solana RPC endpoint
+- `TARGET_WALLET_ADDRESS`: Wallet address to copy trades from
+- `BOT_WALLET_SECRET`: Bot wallet private key (base58 encoded)
 
-## Deployment
+## Error Handling
 
-The bot is designed to run on Render. Simply connect your GitHub repository and Render will automatically build and deploy the application.
+- Comprehensive logging for all operations
+- Graceful error handling for failed transactions
+- Retry logic for network operations
+- Webhook response sent immediately to prevent timeouts
 
-## Logging
+## Security
 
-All logs are output to console and will be visible in your Render dashboard. The bot logs:
-- Webhook reception
-- Transaction processing
-- Swap execution
-- Errors and warnings
-
-## Security Notes
-
-- Keep your private keys secure
-- Monitor your bot's activity regularly
-- Set appropriate transaction limits
-- Test thoroughly before using real funds
+- Bot wallet private key should be kept secure
+- Use environment variables for sensitive data
+- Consider using a dedicated wallet for the bot
+- Monitor bot wallet balance and transactions
