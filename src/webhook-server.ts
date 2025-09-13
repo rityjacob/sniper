@@ -66,6 +66,10 @@ async function processWebhookAsync(webhookData: any) {
     try {
         console.log('🔍 Processing webhook data...');
         
+        // DEBUG: Log the complete webhook structure
+        console.log('📋 COMPLETE WEBHOOK DATA:');
+        console.log(JSON.stringify(webhookData, null, 2));
+        
         // Extract transaction instructions and accounts
         const instructions = webhookData.instructions || [];
         const accounts = webhookData.accountData || [];
@@ -75,8 +79,54 @@ async function processWebhookAsync(webhookData: any) {
         console.log(`📊 Found ${instructions.length} instructions, ${accounts.length} accounts`);
         console.log(`💰 Token transfers: ${tokenTransfers.length}, Native transfers: ${nativeTransfers.length}`);
         
+        // DEBUG: Check for alternative data structures
+        console.log('🔍 DEBUGGING WEBHOOK STRUCTURE:');
+        console.log('  - Has tokenTransfers:', !!webhookData.tokenTransfers);
+        console.log('  - Has nativeTransfers:', !!webhookData.nativeTransfers);
+        console.log('  - Has instructions:', !!webhookData.instructions);
+        console.log('  - Has accountData:', !!webhookData.accountData);
+        console.log('  - Has events:', !!webhookData.events);
+        console.log('  - Has logs:', !!webhookData.logs);
+        console.log('  - Has innerInstructions:', !!webhookData.innerInstructions);
+        console.log('  - Has preBalances:', !!webhookData.preBalances);
+        console.log('  - Has postBalances:', !!webhookData.postBalances);
+        console.log('  - Has preTokenBalances:', !!webhookData.preTokenBalances);
+        console.log('  - Has postTokenBalances:', !!webhookData.postTokenBalances);
+        
+        // Try alternative data structures if standard ones are empty
+        let finalTokenTransfers = tokenTransfers;
+        let finalNativeTransfers = nativeTransfers;
+        
+        if (tokenTransfers.length === 0 && nativeTransfers.length === 0) {
+            console.log('🔍 Trying alternative data structures...');
+            
+            // Try parsing from events
+            if (webhookData.events) {
+                console.log('  - Found events, parsing...');
+                // Parse events for token transfers
+            }
+            
+            // Try parsing from logs
+            if (webhookData.logs) {
+                console.log('  - Found logs, parsing...');
+                // Parse logs for transfer information
+            }
+            
+            // Try parsing from pre/post token balances
+            if (webhookData.preTokenBalances && webhookData.postTokenBalances) {
+                console.log('  - Found token balances, parsing...');
+                finalTokenTransfers = parseTokenBalances(webhookData.preTokenBalances, webhookData.postTokenBalances);
+            }
+            
+            // Try parsing from pre/post balances for SOL transfers
+            if (webhookData.preBalances && webhookData.postBalances) {
+                console.log('  - Found SOL balances, parsing...');
+                finalNativeTransfers = parseSolBalances(webhookData.preBalances, webhookData.postBalances, webhookData.accountData);
+            }
+        }
+        
         // Check if target wallet is involved in this transaction
-        const isTargetInvolved = checkTargetWalletInvolvement(tokenTransfers, nativeTransfers);
+        const isTargetInvolved = checkTargetWalletInvolvement(finalTokenTransfers, finalNativeTransfers);
         
         if (!isTargetInvolved) {
             console.log('❌ Target wallet not involved in this transaction');
@@ -86,7 +136,7 @@ async function processWebhookAsync(webhookData: any) {
         console.log('✅ Target wallet involved - analyzing transaction...');
         
         // Detect if this is a buy transaction
-        const buyInfo = detectBuyTransaction(tokenTransfers, nativeTransfers);
+        const buyInfo = detectBuyTransaction(finalTokenTransfers, finalNativeTransfers);
         
         if (!buyInfo.isBuy) {
             console.log('❌ Not a buy transaction - skipping');
@@ -104,6 +154,59 @@ async function processWebhookAsync(webhookData: any) {
     } catch (error) {
         console.error('❌ Error processing webhook:', error);
     }
+}
+
+// Parse token transfers from pre/post token balances
+function parseTokenBalances(preTokenBalances: any[], postTokenBalances: any[]): any[] {
+    const transfers: any[] = [];
+    
+    // Find accounts that gained tokens
+    postTokenBalances.forEach((postBalance: any) => {
+        const preBalance = preTokenBalances.find((pre: any) => 
+            pre.accountIndex === postBalance.accountIndex && pre.mint === postBalance.mint
+        );
+        
+        if (preBalance) {
+            const preAmount = parseFloat(preBalance.uiTokenAmount?.amount || '0');
+            const postAmount = parseFloat(postBalance.uiTokenAmount?.amount || '0');
+            
+            if (postAmount > preAmount) {
+                transfers.push({
+                    fromUserAccount: 'unknown',
+                    toUserAccount: postBalance.owner,
+                    fromTokenAccount: 'unknown',
+                    toTokenAccount: postBalance.owner,
+                    mint: postBalance.mint,
+                    tokenAmount: (postAmount - preAmount).toString()
+                });
+            }
+        }
+    });
+    
+    return transfers;
+}
+
+// Parse SOL transfers from pre/post balances
+function parseSolBalances(preBalances: number[], postBalances: number[], accountData: any[]): any[] {
+    const transfers: any[] = [];
+    
+    preBalances.forEach((preBalance: number, index: number) => {
+        const postBalance = postBalances[index];
+        const account = accountData?.[index];
+        
+        if (account && preBalance !== postBalance) {
+            const amount = postBalance - preBalance;
+            if (amount !== 0) {
+                transfers.push({
+                    fromUserAccount: amount < 0 ? account : 'unknown',
+                    toUserAccount: amount > 0 ? account : 'unknown',
+                    amount: Math.abs(amount)
+                });
+            }
+        }
+    });
+    
+    return transfers;
 }
 
 // Check if target wallet is involved in the transaction
