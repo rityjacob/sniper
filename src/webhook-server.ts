@@ -22,15 +22,16 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS;
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
+const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1'); // Default 0.1 SOL
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
-  process.exit(1);
+    process.exit(1);
 }
 
 if (!BOT_WALLET_SECRET) {
     console.error('❌ BOT_WALLET_SECRET environment variable is required');
-    process.exit(1);
+  process.exit(1);
 }
 
 // 2. Initialize Clients
@@ -40,6 +41,7 @@ const pumpAmmSdk = new PumpAmmSdk();
 
 console.log('🚀 Bot wallet initialized:', botWallet.publicKey.toString());
 console.log('🎯 Target wallet:', TARGET_WALLET_ADDRESS);
+console.log('💰 Fixed buy amount:', FIXED_BUY_AMOUNT, 'SOL');
 
 // 3. Create Webhook Endpoint
 app.post('/webhook', async (req: Request, res: Response) => {
@@ -47,8 +49,8 @@ app.post('/webhook', async (req: Request, res: Response) => {
     console.log('📅 Timestamp:', new Date().toISOString());
     
     // Respond quickly to Helius
-    res.status(200).json({ 
-        success: true, 
+    res.status(200).json({
+        success: true,
         message: 'Webhook received',
         timestamp: new Date().toISOString()
     });
@@ -64,17 +66,70 @@ async function processWebhookAsync(webhookData: any) {
     try {
         console.log('🔍 Processing webhook data...');
         
+        // DEBUG: Log the complete webhook structure
+        console.log('📋 COMPLETE WEBHOOK DATA:');
+        console.log(JSON.stringify(webhookData, null, 2));
+        
+        // Handle array of transactions (Helius sends array with one transaction)
+        const transaction = Array.isArray(webhookData) ? webhookData[0] : webhookData;
+        
         // Extract transaction instructions and accounts
-        const instructions = webhookData.instructions || [];
-        const accounts = webhookData.accountData || [];
-        const tokenTransfers = webhookData.tokenTransfers || [];
-        const nativeTransfers = webhookData.nativeTransfers || [];
+        const instructions = transaction.instructions || [];
+        const accounts = transaction.accountData || [];
+        const tokenTransfers = transaction.tokenTransfers || [];
+        const nativeTransfers = transaction.nativeTransfers || [];
         
         console.log(`📊 Found ${instructions.length} instructions, ${accounts.length} accounts`);
         console.log(`💰 Token transfers: ${tokenTransfers.length}, Native transfers: ${nativeTransfers.length}`);
         
+        // DEBUG: Check for alternative data structures
+        console.log('🔍 DEBUGGING WEBHOOK STRUCTURE:');
+        console.log('  - Has tokenTransfers:', !!transaction.tokenTransfers);
+        console.log('  - Has nativeTransfers:', !!transaction.nativeTransfers);
+        console.log('  - Has instructions:', !!transaction.instructions);
+        console.log('  - Has accountData:', !!transaction.accountData);
+        console.log('  - Has events:', !!transaction.events);
+        console.log('  - Has logs:', !!transaction.logs);
+        console.log('  - Has innerInstructions:', !!transaction.innerInstructions);
+        console.log('  - Has preBalances:', !!transaction.preBalances);
+        console.log('  - Has postBalances:', !!transaction.postBalances);
+        console.log('  - Has preTokenBalances:', !!transaction.preTokenBalances);
+        console.log('  - Has postTokenBalances:', !!transaction.postTokenBalances);
+        
+        // Try alternative data structures if standard ones are empty
+        let finalTokenTransfers = tokenTransfers;
+        let finalNativeTransfers = nativeTransfers;
+        
+        if (tokenTransfers.length === 0 && nativeTransfers.length === 0) {
+            console.log('🔍 Trying alternative data structures...');
+            
+            // Try parsing from events
+            if (transaction.events) {
+                console.log('  - Found events, parsing...');
+                // Parse events for token transfers
+            }
+            
+            // Try parsing from logs
+            if (transaction.logs) {
+                console.log('  - Found logs, parsing...');
+                // Parse logs for transfer information
+            }
+            
+            // Try parsing from pre/post token balances
+            if (transaction.preTokenBalances && transaction.postTokenBalances) {
+                console.log('  - Found token balances, parsing...');
+                finalTokenTransfers = parseTokenBalances(transaction.preTokenBalances, transaction.postTokenBalances);
+            }
+            
+            // Try parsing from pre/post balances for SOL transfers
+            if (transaction.preBalances && transaction.postBalances) {
+                console.log('  - Found SOL balances, parsing...');
+                finalNativeTransfers = parseSolBalances(transaction.preBalances, transaction.postBalances, transaction.accountData);
+            }
+        }
+        
         // Check if target wallet is involved in this transaction
-        const isTargetInvolved = checkTargetWalletInvolvement(tokenTransfers, nativeTransfers);
+        const isTargetInvolved = checkTargetWalletInvolvement(finalTokenTransfers, finalNativeTransfers);
         
         if (!isTargetInvolved) {
             console.log('❌ Target wallet not involved in this transaction');
@@ -84,7 +139,7 @@ async function processWebhookAsync(webhookData: any) {
         console.log('✅ Target wallet involved - analyzing transaction...');
         
         // Detect if this is a buy transaction
-        const buyInfo = detectBuyTransaction(tokenTransfers, nativeTransfers);
+        const buyInfo = detectBuyTransaction(finalTokenTransfers, finalNativeTransfers);
         
         if (!buyInfo.isBuy) {
             console.log('❌ Not a buy transaction - skipping');
@@ -93,14 +148,68 @@ async function processWebhookAsync(webhookData: any) {
         
         console.log('🟢 BUY TRANSACTION DETECTED!');
         console.log(`   Token: ${buyInfo.tokenMint}`);
-        console.log(`   Amount: ${buyInfo.solAmount} SOL`);
+        console.log(`   Target spent: ${buyInfo.solAmount} SOL`);
+        console.log(`   Bot will buy: ${FIXED_BUY_AMOUNT} SOL (fixed amount)`);
         
-        // 6. Execute Buy via Pump.fun
-        await executePumpFunBuy(buyInfo.tokenMint, buyInfo.solAmount);
+        // 6. Execute Buy via Pump.fun with fixed amount
+        await executePumpFunBuy(buyInfo.tokenMint, FIXED_BUY_AMOUNT);
         
     } catch (error) {
         console.error('❌ Error processing webhook:', error);
     }
+}
+
+// Parse token transfers from pre/post token balances
+function parseTokenBalances(preTokenBalances: any[], postTokenBalances: any[]): any[] {
+    const transfers: any[] = [];
+    
+    // Find accounts that gained tokens
+    postTokenBalances.forEach((postBalance: any) => {
+        const preBalance = preTokenBalances.find((pre: any) => 
+            pre.accountIndex === postBalance.accountIndex && pre.mint === postBalance.mint
+        );
+        
+        if (preBalance) {
+            const preAmount = parseFloat(preBalance.uiTokenAmount?.amount || '0');
+            const postAmount = parseFloat(postBalance.uiTokenAmount?.amount || '0');
+            
+            if (postAmount > preAmount) {
+                transfers.push({
+                    fromUserAccount: 'unknown',
+                    toUserAccount: postBalance.owner,
+                    fromTokenAccount: 'unknown',
+                    toTokenAccount: postBalance.owner,
+                    mint: postBalance.mint,
+                    tokenAmount: (postAmount - preAmount).toString()
+                });
+            }
+        }
+    });
+    
+    return transfers;
+}
+
+// Parse SOL transfers from pre/post balances
+function parseSolBalances(preBalances: number[], postBalances: number[], accountData: any[]): any[] {
+    const transfers: any[] = [];
+    
+    preBalances.forEach((preBalance: number, index: number) => {
+        const postBalance = postBalances[index];
+        const account = accountData?.[index];
+        
+        if (account && preBalance !== postBalance) {
+            const amount = postBalance - preBalance;
+            if (amount !== 0) {
+                transfers.push({
+                    fromUserAccount: amount < 0 ? account : 'unknown',
+                    toUserAccount: amount > 0 ? account : 'unknown',
+                    amount: Math.abs(amount)
+                });
+            }
+        }
+    });
+    
+    return transfers;
 }
 
 // Check if target wallet is involved in the transaction
@@ -190,6 +299,7 @@ app.get('/health', (req: Request, res: Response) => {
             timestamp: new Date().toISOString(),
         botWallet: botWallet.publicKey.toString(),
         targetWallet: TARGET_WALLET_ADDRESS,
+        fixedBuyAmount: FIXED_BUY_AMOUNT,
         rpcUrl: RPC_URL
     });
 });
@@ -204,6 +314,33 @@ app.use((error: any, req: Request, res: Response, next: any) => {
     });
 });
 
+// Self-ping function to keep server awake on Render
+function startSelfPing() {
+    const pingInterval = 14 * 60 * 1000; // 14 minutes in milliseconds
+    const serverUrl = process.env.RENDER_EXTERNAL_URL || `https://sniper-tup2.onrender.com`;
+    
+    const pingServer = async () => {
+        try {
+            const response = await fetch(`${serverUrl}/health`);
+            if (response.ok) {
+                console.log(`✅ Self-ping successful at ${new Date().toISOString()}`);
+            } else {
+                console.log(`⚠️  Self-ping failed with status: ${response.status}`);
+            }
+        } catch (error) {
+            console.error(`❌ Self-ping error:`, error);
+        }
+    };
+
+    // Start the ping interval
+    setInterval(pingServer, pingInterval);
+    
+    // Initial ping
+    pingServer();
+    
+    console.log(`🔄 Self-ping started - pinging every ${pingInterval / 1000 / 60} minutes`);
+}
+
 // Start server
 app.listen(PORT, () => {
     console.log(`🚀 Pump.fun Sniper Bot running on port ${PORT}`);
@@ -211,6 +348,10 @@ app.listen(PORT, () => {
     console.log(`❤️  Health check: GET /health`);
     console.log(`🎯 Target wallet: ${TARGET_WALLET_ADDRESS}`);
     console.log(`🤖 Bot wallet: ${botWallet.publicKey.toString()}`);
+    console.log(`💰 Fixed buy amount: ${FIXED_BUY_AMOUNT} SOL`);
+    
+    // Start self-ping to keep server awake
+startSelfPing();
 });
 
 export default app;
