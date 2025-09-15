@@ -1,8 +1,11 @@
 import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
 import { Connection, PublicKey, Keypair, Transaction } from '@solana/web3.js';
+import BN from 'bn.js';
 import { 
-    PumpAmmSdk
+    PumpAmmSdk,
+    OnlinePumpAmmSdk,
+    canonicalPumpPoolPda
 } from '@pump-fun/pump-swap-sdk';
 import bs58 from 'bs58';
 import * as dotenv from 'dotenv';
@@ -271,24 +274,53 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
 async function executePumpFunBuy(tokenMint: string, amountSol: number) {
     try {
         console.log(`🚀 Executing Pump.fun buy: ${amountSol} SOL for token ${tokenMint}`);
-        
-        // For now, we'll implement a basic buy using the PumpAmmSdk
-        // The exact API may vary, so this is a placeholder implementation
         console.log('📊 Token mint:', tokenMint);
         console.log('💰 Amount SOL:', amountSol);
         console.log('🤖 Bot wallet:', botWallet.publicKey.toString());
-        
-        // TODO: Implement actual buy logic once we confirm the correct SDK API
-        // This would typically involve:
-        // 1. Getting swap state for the token
-        // 2. Calculating buy amount
-        // 3. Creating and sending transaction
-        
-        console.log('⚠️  Buy execution placeholder - implement actual buy logic');
+
+        // Convert SOL to lamports (1 SOL = 1e9 lamports)
+        const amountLamports = new BN(Math.floor(amountSol * 1e9));
+        const tokenMintPubkey = new PublicKey(tokenMint);
+
+        // Build SwapSolanaState using the online SDK helper
+        const onlineSdk = new OnlinePumpAmmSdk(connection);
+        const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
+        const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
+
+        // Build buy instructions for a quote-in (SOL) swap with slippage 1%
+        const slippagePercent = 1; // 1% slippage
+        const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, slippagePercent);
+
+        // Create and send transaction
+        const tx = new Transaction();
+        tx.add(...buyIx);
+        const { blockhash } = await connection.getLatestBlockhash();
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = botWallet.publicKey;
+        tx.sign(botWallet);
+
+        console.log('📤 Sending buy transaction...');
+        const signature = await connection.sendRawTransaction(tx.serialize(), {
+            skipPreflight: false,
+            preflightCommitment: 'confirmed'
+        });
+        console.log('✅ Buy transaction sent:', signature);
+        await connection.confirmTransaction(signature, 'confirmed');
+        console.log('🎉 Buy transaction confirmed!');
         
     } catch (error) {
         console.error('❌ Pump.fun buy failed:', error);
-        throw error;
+        
+        // Retry logic for common errors
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('pool') || errorMessage.includes('not ready')) {
+            console.log('🔄 Pool not ready, retrying in 2 seconds...');
+            setTimeout(() => {
+                executePumpFunBuy(tokenMint, amountSol);
+            }, 2000);
+        } else {
+            throw error;
+        }
     }
 }
 
