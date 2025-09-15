@@ -31,7 +31,7 @@ if (!TARGET_WALLET_ADDRESS) {
 
 if (!BOT_WALLET_SECRET) {
     console.error('❌ BOT_WALLET_SECRET environment variable is required');
-    process.exit(1);
+  process.exit(1);
 }
 
 // 2. Initialize Clients
@@ -49,8 +49,8 @@ app.post('/webhook', async (req: Request, res: Response) => {
     console.log('📅 Timestamp:', new Date().toISOString());
     
     // Respond quickly to Helius
-    res.status(200).json({ 
-        success: true, 
+    res.status(200).json({
+        success: true,
         message: 'Webhook received',
         timestamp: new Date().toISOString()
     });
@@ -70,28 +70,31 @@ async function processWebhookAsync(webhookData: any) {
         console.log('📋 COMPLETE WEBHOOK DATA:');
         console.log(JSON.stringify(webhookData, null, 2));
         
+        // Handle array of transactions (Helius sends array with one transaction)
+        const transaction = Array.isArray(webhookData) ? webhookData[0] : webhookData;
+        
         // Extract transaction instructions and accounts
-        const instructions = webhookData.instructions || [];
-        const accounts = webhookData.accountData || [];
-        const tokenTransfers = webhookData.tokenTransfers || [];
-        const nativeTransfers = webhookData.nativeTransfers || [];
+        const instructions = transaction.instructions || [];
+        const accounts = transaction.accountData || [];
+        const tokenTransfers = transaction.tokenTransfers || [];
+        const nativeTransfers = transaction.nativeTransfers || [];
         
         console.log(`📊 Found ${instructions.length} instructions, ${accounts.length} accounts`);
         console.log(`💰 Token transfers: ${tokenTransfers.length}, Native transfers: ${nativeTransfers.length}`);
         
         // DEBUG: Check for alternative data structures
         console.log('🔍 DEBUGGING WEBHOOK STRUCTURE:');
-        console.log('  - Has tokenTransfers:', !!webhookData.tokenTransfers);
-        console.log('  - Has nativeTransfers:', !!webhookData.nativeTransfers);
-        console.log('  - Has instructions:', !!webhookData.instructions);
-        console.log('  - Has accountData:', !!webhookData.accountData);
-        console.log('  - Has events:', !!webhookData.events);
-        console.log('  - Has logs:', !!webhookData.logs);
-        console.log('  - Has innerInstructions:', !!webhookData.innerInstructions);
-        console.log('  - Has preBalances:', !!webhookData.preBalances);
-        console.log('  - Has postBalances:', !!webhookData.postBalances);
-        console.log('  - Has preTokenBalances:', !!webhookData.preTokenBalances);
-        console.log('  - Has postTokenBalances:', !!webhookData.postTokenBalances);
+        console.log('  - Has tokenTransfers:', !!transaction.tokenTransfers);
+        console.log('  - Has nativeTransfers:', !!transaction.nativeTransfers);
+        console.log('  - Has instructions:', !!transaction.instructions);
+        console.log('  - Has accountData:', !!transaction.accountData);
+        console.log('  - Has events:', !!transaction.events);
+        console.log('  - Has logs:', !!transaction.logs);
+        console.log('  - Has innerInstructions:', !!transaction.innerInstructions);
+        console.log('  - Has preBalances:', !!transaction.preBalances);
+        console.log('  - Has postBalances:', !!transaction.postBalances);
+        console.log('  - Has preTokenBalances:', !!transaction.preTokenBalances);
+        console.log('  - Has postTokenBalances:', !!transaction.postTokenBalances);
         
         // Try alternative data structures if standard ones are empty
         let finalTokenTransfers = tokenTransfers;
@@ -101,27 +104,27 @@ async function processWebhookAsync(webhookData: any) {
             console.log('🔍 Trying alternative data structures...');
             
             // Try parsing from events
-            if (webhookData.events) {
+            if (transaction.events) {
                 console.log('  - Found events, parsing...');
                 // Parse events for token transfers
             }
             
             // Try parsing from logs
-            if (webhookData.logs) {
+            if (transaction.logs) {
                 console.log('  - Found logs, parsing...');
                 // Parse logs for transfer information
             }
             
             // Try parsing from pre/post token balances
-            if (webhookData.preTokenBalances && webhookData.postTokenBalances) {
+            if (transaction.preTokenBalances && transaction.postTokenBalances) {
                 console.log('  - Found token balances, parsing...');
-                finalTokenTransfers = parseTokenBalances(webhookData.preTokenBalances, webhookData.postTokenBalances);
+                finalTokenTransfers = parseTokenBalances(transaction.preTokenBalances, transaction.postTokenBalances);
             }
             
             // Try parsing from pre/post balances for SOL transfers
-            if (webhookData.preBalances && webhookData.postBalances) {
+            if (transaction.preBalances && transaction.postBalances) {
                 console.log('  - Found SOL balances, parsing...');
-                finalNativeTransfers = parseSolBalances(webhookData.preBalances, webhookData.postBalances, webhookData.accountData);
+                finalNativeTransfers = parseSolBalances(transaction.preBalances, transaction.postBalances, transaction.accountData);
             }
         }
         
@@ -291,9 +294,9 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
-    res.status(200).json({
+        res.status(200).json({
         status: 'healthy',
-        timestamp: new Date().toISOString(),
+            timestamp: new Date().toISOString(),
         botWallet: botWallet.publicKey.toString(),
         targetWallet: TARGET_WALLET_ADDRESS,
         fixedBuyAmount: FIXED_BUY_AMOUNT,
@@ -348,7 +351,7 @@ app.listen(PORT, () => {
     console.log(`💰 Fixed buy amount: ${FIXED_BUY_AMOUNT} SOL`);
     
     // Start self-ping to keep server awake
-    startSelfPing();
+startSelfPing();
 });
 
 export default app;
