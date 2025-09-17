@@ -288,7 +288,7 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
 
         // Build buy instructions for a quote-in (SOL) swap with slippage 1%
-        const slippagePercent = 1; // 1% slippage
+        const slippagePercent = 25; // 1% slippage
         const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, slippagePercent);
 
         // Create and send transaction
