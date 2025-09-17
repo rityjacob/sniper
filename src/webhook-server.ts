@@ -25,7 +25,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS;
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
-const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1'); // Default 0.1 SOL
+const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.1 SOL
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
