@@ -25,7 +25,8 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS;
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
-const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.1 SOL
+const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.08 SOL
+const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25'); // Default 5%
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
@@ -287,9 +288,8 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
         const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
 
-        // Build buy instructions for a quote-in (SOL) swap with slippage 1%
-        const slippagePercent = 25; // 1% slippage
-        const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, slippagePercent);
+        // Build buy instructions for a quote-in (SOL) swap
+        const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_PERCENT);
 
         // Create and send transaction
         const tx = new Transaction();
