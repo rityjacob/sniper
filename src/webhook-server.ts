@@ -1,6 +1,24 @@
 import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
-import { Connection, PublicKey, Keypair, Transaction } from '@solana/web3.js';
+import { 
+    Connection, 
+    PublicKey, 
+    Keypair, 
+    Transaction, 
+    ComputeBudgetProgram,
+    SystemProgram,
+    LAMPORTS_PER_SOL
+} from '@solana/web3.js';
+import { 
+    getAssociatedTokenAddress,
+    createInitializeAccountInstruction,
+    createCloseAccountInstruction,
+    TOKEN_PROGRAM_ID
+} from '@solana/spl-token';
+import { 
+    createAssociatedTokenAccountInstruction,
+    ASSOCIATED_TOKEN_PROGRAM_ID
+} from '@solana/spl-token';
 import BN from 'bn.js';
 import { 
     PumpAmmSdk,
@@ -26,7 +44,9 @@ const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.c
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS;
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
 const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.08 SOL
-const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25'); // Default 5%
+const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25'); // Default 25%
+const COMPUTE_UNIT_LIMIT = parseInt(process.env.COMPUTE_UNIT_LIMIT || '164940'); // Default 164,940 units
+const COMPUTE_UNIT_PRICE = parseInt(process.env.COMPUTE_UNIT_PRICE || '1364133'); // Default 1,364,133 micro lamports
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
@@ -46,6 +66,8 @@ const pumpAmmSdk = new PumpAmmSdk();
 console.log('🚀 Bot wallet initialized:', botWallet.publicKey.toString());
 console.log('🎯 Target wallet:', TARGET_WALLET_ADDRESS);
 console.log('💰 Fixed buy amount:', FIXED_BUY_AMOUNT, 'SOL');
+console.log('⚡ Compute unit limit:', COMPUTE_UNIT_LIMIT);
+console.log('💸 Compute unit price:', COMPUTE_UNIT_PRICE, 'micro lamports');
 
 // 3. Create Webhook Endpoint
 app.post('/webhook', async (req: Request, res: Response) => {
@@ -271,7 +293,7 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
     };
 }
 
-// 6. Execute Buy via Pump.fun
+// 6. Execute Buy via Pump.fun with target bot instruction order
 async function executePumpFunBuy(tokenMint: string, amountSol: number) {
     try {
         console.log(`🚀 Executing Pump.fun buy: ${amountSol} SOL for token ${tokenMint}`);
@@ -291,15 +313,78 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         // Build buy instructions for a quote-in (SOL) swap
         const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_PERCENT);
 
-        // Create and send transaction
+        // Create transaction with exact instruction order from target bot
         const tx = new Transaction();
+
+        // 1. ComputeBudgetProgram.setComputeUnitLimit (configurable via COMPUTE_UNIT_LIMIT)
+        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT }));
+
+        // 2. ComputeBudgetProgram.setComputeUnitPrice (configurable via COMPUTE_UNIT_PRICE)
+        tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: COMPUTE_UNIT_PRICE }));
+
+        // 3. SystemProgram.createAccountWithSeed
+        // We need to create a temporary account for the token account
+        const tempAccountKeypair = Keypair.generate();
+        const tempAccountSize = 165; // Standard token account size
+        const rentExemptAmount = await connection.getMinimumBalanceForRentExemption(tempAccountSize);
+        
+        tx.add(
+            SystemProgram.createAccountWithSeed({
+                fromPubkey: botWallet.publicKey,
+                basePubkey: botWallet.publicKey,
+                seed: 'temp-token-account',
+                newAccountPubkey: tempAccountKeypair.publicKey,
+                lamports: rentExemptAmount,
+                space: tempAccountSize,
+                programId: TOKEN_PROGRAM_ID,
+            })
+        );
+
+        // 4. TokenProgram.initializeAccount
+        tx.add(
+            createInitializeAccountInstruction(
+                tempAccountKeypair.publicKey,
+                tokenMintPubkey,
+                botWallet.publicKey
+            )
+        );
+
+        // 5. AssociatedTokenAccountProgram.create
+        // Create the associated token account for the bot wallet
+        const associatedTokenAccount = await getAssociatedTokenAddress(
+            tokenMintPubkey,
+            botWallet.publicKey
+        );
+        
+        tx.add(
+            createAssociatedTokenAccountInstruction(
+                botWallet.publicKey,
+                associatedTokenAccount,
+                botWallet.publicKey,
+                tokenMintPubkey
+            )
+        );
+
+        // 6. Pump.fun AMM.buy (the actual buy instruction)
         tx.add(...buyIx);
+
+        // 7. TokenProgram.closeAccount
+        // Close the temporary token account and redeem SOL
+        tx.add(
+            createCloseAccountInstruction(
+                tempAccountKeypair.publicKey,
+                botWallet.publicKey,
+                botWallet.publicKey
+            )
+        );
+
+        // Set transaction properties
         const { blockhash } = await connection.getLatestBlockhash();
         tx.recentBlockhash = blockhash;
         tx.feePayer = botWallet.publicKey;
-        tx.sign(botWallet);
+        tx.sign(botWallet, tempAccountKeypair);
 
-        console.log('📤 Sending buy transaction...');
+        console.log('📤 Sending buy transaction with target bot instruction order...');
         const signature = await connection.sendRawTransaction(tx.serialize(), {
             skipPreflight: false,
             preflightCommitment: 'confirmed'
@@ -332,6 +417,9 @@ app.get('/health', (req: Request, res: Response) => {
         botWallet: botWallet.publicKey.toString(),
         targetWallet: TARGET_WALLET_ADDRESS,
         fixedBuyAmount: FIXED_BUY_AMOUNT,
+        slippagePercent: SLIPPAGE_PERCENT,
+        computeUnitLimit: COMPUTE_UNIT_LIMIT,
+        computeUnitPrice: COMPUTE_UNIT_PRICE,
         rpcUrl: RPC_URL
     });
 });
@@ -381,6 +469,8 @@ app.listen(PORT, () => {
     console.log(`🎯 Target wallet: ${TARGET_WALLET_ADDRESS}`);
     console.log(`🤖 Bot wallet: ${botWallet.publicKey.toString()}`);
     console.log(`💰 Fixed buy amount: ${FIXED_BUY_AMOUNT} SOL`);
+    console.log(`⚡ Compute unit limit: ${COMPUTE_UNIT_LIMIT}`);
+    console.log(`💸 Compute unit price: ${COMPUTE_UNIT_PRICE} micro lamports`);
     
     // Start self-ping to keep server awake
 startSelfPing();

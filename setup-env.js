@@ -19,6 +19,15 @@ BOT_WALLET_SECRET=${botSecretKey}
 # Fixed buy amount in SOL (bot will always buy this amount regardless of target's amount)
 FIXED_BUY_AMOUNT=0.1
 
+# Slippage tolerance percentage (default: 25%)
+SLIPPAGE_PERCENT=25
+
+# Compute unit limit for transactions (default: 164940)
+COMPUTE_UNIT_LIMIT=164940
+
+# Compute unit price in micro lamports (default: 1364133)
+COMPUTE_UNIT_PRICE=1364133
+
 # Server port (optional, defaults to 3000)
 PORT=3000
 `;
