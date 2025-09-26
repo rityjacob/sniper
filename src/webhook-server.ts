@@ -313,7 +313,7 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         // Build buy instructions for a quote-in (SOL) swap
         const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_PERCENT);
 
-        // Create transaction with exact instruction order from target bot
+        // Create transaction with simplified structure
         const tx = new Transaction();
 
         // 1. ComputeBudgetProgram.setComputeUnitLimit (configurable via COMPUTE_UNIT_LIMIT)
@@ -322,67 +322,33 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         // 2. ComputeBudgetProgram.setComputeUnitPrice (configurable via COMPUTE_UNIT_PRICE)
         tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: COMPUTE_UNIT_PRICE }));
 
-        // 3. SystemProgram.createAccountWithSeed
-        // We need to create a temporary account for the token account
-        const tempAccountKeypair = Keypair.generate();
-        const tempAccountSize = 165; // Standard token account size
-        const rentExemptAmount = await connection.getMinimumBalanceForRentExemption(tempAccountSize);
-        
-        tx.add(
-            SystemProgram.createAccountWithSeed({
-                fromPubkey: botWallet.publicKey,
-                basePubkey: botWallet.publicKey,
-                seed: 'temp-token-account',
-                newAccountPubkey: tempAccountKeypair.publicKey,
-                lamports: rentExemptAmount,
-                space: tempAccountSize,
-                programId: TOKEN_PROGRAM_ID,
-            })
-        );
-
-        // 4. TokenProgram.initializeAccount
-        tx.add(
-            createInitializeAccountInstruction(
-                tempAccountKeypair.publicKey,
-                tokenMintPubkey,
-                botWallet.publicKey
-            )
-        );
-
-        // 5. AssociatedTokenAccountProgram.create
-        // Create the associated token account for the bot wallet
+        // 3. Create associated token account if it doesn't exist
         const associatedTokenAccount = await getAssociatedTokenAddress(
             tokenMintPubkey,
             botWallet.publicKey
         );
         
-        tx.add(
-            createAssociatedTokenAccountInstruction(
-                botWallet.publicKey,
-                associatedTokenAccount,
-                botWallet.publicKey,
-                tokenMintPubkey
-            )
-        );
+        // Check if the associated token account already exists
+        const tokenAccountInfo = await connection.getAccountInfo(associatedTokenAccount);
+        if (!tokenAccountInfo) {
+            tx.add(
+                createAssociatedTokenAccountInstruction(
+                    botWallet.publicKey,
+                    associatedTokenAccount,
+                    botWallet.publicKey,
+                    tokenMintPubkey
+                )
+            );
+        }
 
-        // 6. Pump.fun AMM.buy (the actual buy instruction)
+        // 4. Pump.fun AMM.buy (the actual buy instruction)
         tx.add(...buyIx);
-
-        // 7. TokenProgram.closeAccount
-        // Close the temporary token account and redeem SOL
-        tx.add(
-            createCloseAccountInstruction(
-                tempAccountKeypair.publicKey,
-                botWallet.publicKey,
-                botWallet.publicKey
-            )
-        );
 
         // Set transaction properties
         const { blockhash } = await connection.getLatestBlockhash();
         tx.recentBlockhash = blockhash;
         tx.feePayer = botWallet.publicKey;
-        tx.sign(botWallet, tempAccountKeypair);
+        tx.sign(botWallet);
 
         console.log('📤 Sending buy transaction with target bot instruction order...');
         const signature = await connection.sendRawTransaction(tx.serialize(), {
