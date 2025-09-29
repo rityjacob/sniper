@@ -41,15 +41,19 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 // Environment validation
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS;
+// Support multiple target wallets via comma-separated TARGET_WALLET_ADDRESSES; fallback to TARGET_WALLET_ADDRESS
+const TARGET_WALLET_ADDRESSES: string[] = (process.env.TARGET_WALLET_ADDRESSES || process.env.TARGET_WALLET_ADDRESS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
 const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.08 SOL
 const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25'); // Default 25%
 const COMPUTE_UNIT_LIMIT = parseInt(process.env.COMPUTE_UNIT_LIMIT || '164940'); // Default 164,940 units
 const COMPUTE_UNIT_PRICE = parseInt(process.env.COMPUTE_UNIT_PRICE || '1364133'); // Default 1,364,133 micro lamports
 
-if (!TARGET_WALLET_ADDRESS) {
-    console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
+if (TARGET_WALLET_ADDRESSES.length === 0) {
+    console.error('❌ TARGET_WALLET_ADDRESSES or TARGET_WALLET_ADDRESS environment variable is required');
     process.exit(1);
 }
 
@@ -64,7 +68,7 @@ const botWallet = Keypair.fromSecretKey(bs58.decode(BOT_WALLET_SECRET));
 const pumpAmmSdk = new PumpAmmSdk();
 
 console.log('🚀 Bot wallet initialized:', botWallet.publicKey.toString());
-console.log('🎯 Target wallet:', TARGET_WALLET_ADDRESS);
+console.log('🎯 Target wallet(s):', TARGET_WALLET_ADDRESSES.join(', '));
 console.log('💰 Fixed buy amount:', FIXED_BUY_AMOUNT, 'SOL');
 console.log('⚡ Compute unit limit:', COMPUTE_UNIT_LIMIT);
 console.log('💸 Compute unit price:', COMPUTE_UNIT_PRICE, 'micro lamports');
@@ -240,18 +244,16 @@ function parseSolBalances(preBalances: number[], postBalances: number[], account
 
 // Check if target wallet is involved in the transaction
 function checkTargetWalletInvolvement(tokenTransfers: any[], nativeTransfers: any[]): boolean {
-    const targetWallet = TARGET_WALLET_ADDRESS;
-    
-    // Check token transfers
+    // Check token transfers against any target wallet
     const targetInTokenTransfers = tokenTransfers.some(transfer => 
-        transfer.fromUserAccount === targetWallet || 
-        transfer.toUserAccount === targetWallet
+        TARGET_WALLET_ADDRESSES.includes(transfer.fromUserAccount) || 
+        TARGET_WALLET_ADDRESSES.includes(transfer.toUserAccount)
     );
     
-    // Check native transfers (SOL)
+    // Check native transfers (SOL) against any target wallet
     const targetInNativeTransfers = nativeTransfers.some(transfer => 
-        transfer.fromUserAccount === targetWallet || 
-        transfer.toUserAccount === targetWallet
+        TARGET_WALLET_ADDRESSES.includes(transfer.fromUserAccount) || 
+        TARGET_WALLET_ADDRESSES.includes(transfer.toUserAccount)
     );
     
     return targetInTokenTransfers || targetInNativeTransfers;
@@ -263,17 +265,15 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
     tokenMint: string;
     solAmount: number;
 } {
-    const targetWallet = TARGET_WALLET_ADDRESS;
-    
-    // Look for token transfers where target wallet is receiving tokens
+    // Look for token transfers where any target wallet is receiving tokens
     const targetReceivingTokens = tokenTransfers.find(transfer => 
-        transfer.toUserAccount === targetWallet
+        TARGET_WALLET_ADDRESSES.includes(transfer.toUserAccount)
     );
     
-    // Look for SOL transfers where target wallet is sending SOL
+    // Look for SOL transfers where any target wallet is sending SOL
     const targetSendingSol = nativeTransfers.find(transfer => 
-            transfer.fromUserAccount === targetWallet
-        );
+        TARGET_WALLET_ADDRESSES.includes(transfer.fromUserAccount)
+    );
     
     if (targetReceivingTokens && targetSendingSol) {
         // This looks like a buy: target sent SOL and received tokens
@@ -381,7 +381,7 @@ app.get('/health', (req: Request, res: Response) => {
         status: 'healthy',
             timestamp: new Date().toISOString(),
         botWallet: botWallet.publicKey.toString(),
-        targetWallet: TARGET_WALLET_ADDRESS,
+        targetWallets: TARGET_WALLET_ADDRESSES,
         fixedBuyAmount: FIXED_BUY_AMOUNT,
         slippagePercent: SLIPPAGE_PERCENT,
         computeUnitLimit: COMPUTE_UNIT_LIMIT,
@@ -432,7 +432,7 @@ app.listen(PORT, () => {
     console.log(`🚀 Pump.fun Sniper Bot running on port ${PORT}`);
     console.log(`📡 Webhook endpoint: POST /webhook`);
     console.log(`❤️  Health check: GET /health`);
-    console.log(`🎯 Target wallet: ${TARGET_WALLET_ADDRESS}`);
+    console.log(`🎯 Target wallets: ${TARGET_WALLET_ADDRESSES.join(', ')}`);
     console.log(`🤖 Bot wallet: ${botWallet.publicKey.toString()}`);
     console.log(`💰 Fixed buy amount: ${FIXED_BUY_AMOUNT} SOL`);
     console.log(`⚡ Compute unit limit: ${COMPUTE_UNIT_LIMIT}`);

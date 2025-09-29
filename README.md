@@ -61,11 +61,13 @@ A clean, focused webhook server that detects buy transactions from a target wall
 
 ## Configuration
 
-The bot requires three environment variables:
+The bot requires these environment variables:
 
 - `SOLANA_RPC_URL`: Solana RPC endpoint
-- `TARGET_WALLET_ADDRESS`: Wallet address to copy trades from
-- `BOT_WALLET_SECRET`: Bot wallet private key (base58 encoded)
+- `TARGET_WALLET_ADDRESSES`: Comma-separated wallet addresses to copy trades from
+  - Example: `TARGET_WALLET_ADDRESSES=WalletA,WalletB,WalletC`
+  - Backward compatible: you can still use `TARGET_WALLET_ADDRESS` for a single wallet
+- `BOT_WALLET_SECRET`: Bot wallet private key (base58 encoded 64-byte secret)
 
 ## Error Handling
 
