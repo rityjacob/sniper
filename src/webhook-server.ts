@@ -294,7 +294,10 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
 }
 
 // 6. Execute Buy via Pump.fun with target bot instruction order
-async function executePumpFunBuy(tokenMint: string, amountSol: number) {
+async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCount: number = 0) {
+    const maxRetries = 3;
+    const retryDelay = 2000; // 2 seconds
+    
     try {
         console.log(`🚀 Executing Pump.fun buy: ${amountSol} SOL for token ${tokenMint}`);
         console.log('📊 Token mint:', tokenMint);
@@ -308,6 +311,8 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         // Build SwapSolanaState using the online SDK helper
         const onlineSdk = new OnlinePumpAmmSdk(connection);
         const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
+        
+        console.log('🔍 Checking pool state for token:', tokenMint);
         const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
 
         // Build buy instructions for a quote-in (SOL) swap
@@ -362,16 +367,30 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
     } catch (error) {
         console.error('❌ Pump.fun buy failed:', error);
         
-        // Retry logic for common errors
         const errorMessage = error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes('pool') || errorMessage.includes('not ready')) {
-            console.log('🔄 Pool not ready, retrying in 2 seconds...');
-            setTimeout(() => {
-                executePumpFunBuy(tokenMint, amountSol);
-            }, 2000);
-        } else {
-            throw error;
+        
+        // Handle specific error cases
+        if (errorMessage.includes('Pool account not found')) {
+            console.log('⚠️  Pool not found - token may not have a Pump.fun pool yet');
+            console.log('💡 This usually means the token is too new or not on Pump.fun');
+            return; // Don't retry for pool not found
         }
+        
+        if (errorMessage.includes('pool') || errorMessage.includes('not ready') || errorMessage.includes('simulation failed')) {
+            if (retryCount < maxRetries) {
+                console.log(`🔄 Retrying in ${retryDelay/1000} seconds... (attempt ${retryCount + 1}/${maxRetries})`);
+                setTimeout(() => {
+                    executePumpFunBuy(tokenMint, amountSol, retryCount + 1);
+                }, retryDelay);
+                return;
+            } else {
+                console.log('❌ Max retries reached, giving up');
+                return;
+            }
+        }
+        
+        // For other errors, don't retry
+        console.log('❌ Non-retryable error:', errorMessage);
     }
 }
 
