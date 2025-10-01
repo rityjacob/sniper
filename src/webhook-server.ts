@@ -51,6 +51,9 @@ const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // 
 const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25'); // Default 25%
 const COMPUTE_UNIT_LIMIT = parseInt(process.env.COMPUTE_UNIT_LIMIT || '164940'); // Default 164,940 units
 const COMPUTE_UNIT_PRICE = parseInt(process.env.COMPUTE_UNIT_PRICE || '1364133'); // Default 1,364,133 micro lamports
+// Fast pool check controls
+const POOL_CHECK_RETRIES = parseInt(process.env.POOL_CHECK_RETRIES || '4'); // total ~ 1.2s with default interval
+const POOL_CHECK_INTERVAL_MS = parseInt(process.env.POOL_CHECK_INTERVAL_MS || '300');
 
 if (TARGET_WALLET_ADDRESSES.length === 0) {
     console.error('❌ TARGET_WALLET_ADDRESSES or TARGET_WALLET_ADDRESS environment variable is required');
@@ -303,6 +306,9 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCoun
         console.log('📊 Token mint:', tokenMint);
         console.log('💰 Amount SOL:', amountSol);
         console.log('🤖 Bot wallet:', botWallet.publicKey.toString());
+        console.log('⚡ Compute units:', COMPUTE_UNIT_LIMIT);
+        console.log('💸 Priority fee:', COMPUTE_UNIT_PRICE, 'micro lamports (~', (COMPUTE_UNIT_PRICE * COMPUTE_UNIT_LIMIT / 1e9).toFixed(6), 'SOL)');
+        console.log('📈 Slippage tolerance:', SLIPPAGE_PERCENT + '%');
 
         // Convert SOL to lamports (1 SOL = 1e9 lamports)
         const amountLamports = new BN(Math.floor(amountSol * 1e9));
@@ -311,8 +317,21 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCoun
         // Build SwapSolanaState using the online SDK helper
         const onlineSdk = new OnlinePumpAmmSdk(connection);
         const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
-        
-        console.log('🔍 Checking pool state for token:', tokenMint);
+        console.log('🧩 Derived pool PDA:', poolKey.toString());
+
+        // Wait briefly for pool account to appear (fast, configurable)
+        let poolInfo = await connection.getAccountInfo(poolKey);
+        let attempts = 0;
+        while (!poolInfo && attempts < POOL_CHECK_RETRIES) {
+            await new Promise((r) => setTimeout(r, POOL_CHECK_INTERVAL_MS));
+            poolInfo = await connection.getAccountInfo(poolKey);
+            attempts++;
+        }
+        if (!poolInfo) {
+            throw new Error('Pool account not found (fast check)');
+        }
+
+        console.log('✅ Pool account is present, fetching swap state...');
         const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
 
         // Build buy instructions for a quote-in (SOL) swap
@@ -374,6 +393,12 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCoun
             console.log('⚠️  Pool not found - token may not have a Pump.fun pool yet');
             console.log('💡 This usually means the token is too new or not on Pump.fun');
             return; // Don't retry for pool not found
+        }
+        
+        if (errorMessage.includes('ExceededSlippage') || errorMessage.includes('0x1774')) {
+            console.log('⚠️  Slippage exceeded - price moved too much');
+            console.log('💡 Consider increasing SLIPPAGE_PERCENT or reducing FIXED_BUY_AMOUNT');
+            return; // Don't retry for slippage - it won't get better
         }
         
         if (errorMessage.includes('pool') || errorMessage.includes('not ready') || errorMessage.includes('simulation failed')) {
