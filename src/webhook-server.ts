@@ -48,7 +48,7 @@ const TARGET_WALLET_ADDRESSES: string[] = (process.env.TARGET_WALLET_ADDRESSES |
     .filter((s) => s.length > 0);
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
 const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.08 SOL
-const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25'); // Default 25%
+const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '35'); // Default 25%
 const COMPUTE_UNIT_LIMIT = parseInt(process.env.COMPUTE_UNIT_LIMIT || '164940'); // Default 164,940 units
 const COMPUTE_UNIT_PRICE = parseInt(process.env.COMPUTE_UNIT_PRICE || '1364133'); // Default 1,364,133 micro lamports
 // Fast pool check controls
