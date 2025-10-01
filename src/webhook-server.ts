@@ -49,8 +49,8 @@ const TARGET_WALLET_ADDRESSES: string[] = (process.env.TARGET_WALLET_ADDRESSES |
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
 const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.08 SOL
 const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '35'); // Default 25%
-const COMPUTE_UNIT_LIMIT = parseInt(process.env.COMPUTE_UNIT_LIMIT || '164940'); // Default 164,940 units
-const COMPUTE_UNIT_PRICE = parseInt(process.env.COMPUTE_UNIT_PRICE || '1364133'); // Default 1,364,133 micro lamports
+const COMPUTE_UNIT_LIMIT = parseInt(process.env.COMPUTE_UNIT_LIMIT || '200000'); // Default 164,940 units
+const COMPUTE_UNIT_PRICE = parseInt(process.env.COMPUTE_UNIT_PRICE || '1665000'); // Default 1,364,133 micro lamports
 // Fast pool check controls
 const POOL_CHECK_RETRIES = parseInt(process.env.POOL_CHECK_RETRIES || '4'); // total ~ 1.2s with default interval
 const POOL_CHECK_INTERVAL_MS = parseInt(process.env.POOL_CHECK_INTERVAL_MS || '300');
@@ -296,6 +296,37 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
     };
 }
 
+// Ensure the associated token account exists for a given mint; create it in a separate tx if missing
+async function ensureAtaExists(owner: PublicKey, mint: PublicKey): Promise<PublicKey> {
+    const ata = await getAssociatedTokenAddress(mint, owner);
+    const info = await connection.getAccountInfo(ata);
+    if (info) {
+        return ata;
+    }
+
+    console.log('🛠️  Creating ATA in a separate transaction:', ata.toString());
+    const tx = new Transaction();
+    tx.add(
+        createAssociatedTokenAccountInstruction(
+            botWallet.publicKey,
+            ata,
+            owner,
+            mint
+        )
+    );
+
+    const { blockhash } = await connection.getLatestBlockhash();
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = botWallet.publicKey;
+    tx.sign(botWallet);
+
+    const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false, preflightCommitment: 'confirmed' });
+    console.log('✅ ATA creation tx sent:', sig);
+    await connection.confirmTransaction(sig, 'confirmed');
+    console.log('✅ ATA confirmed');
+    return ata;
+}
+
 // 6. Execute Buy via Pump.fun with target bot instruction order
 async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCount: number = 0) {
     const maxRetries = 3;
@@ -346,24 +377,8 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCoun
         // 2. ComputeBudgetProgram.setComputeUnitPrice (configurable via COMPUTE_UNIT_PRICE)
         tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: COMPUTE_UNIT_PRICE }));
 
-        // 3. Create associated token account if it doesn't exist
-        const associatedTokenAccount = await getAssociatedTokenAddress(
-            tokenMintPubkey,
-            botWallet.publicKey
-        );
-        
-        // Check if the associated token account already exists
-        const tokenAccountInfo = await connection.getAccountInfo(associatedTokenAccount);
-        if (!tokenAccountInfo) {
-            tx.add(
-                createAssociatedTokenAccountInstruction(
-                    botWallet.publicKey,
-                    associatedTokenAccount,
-                    botWallet.publicKey,
-                    tokenMintPubkey
-                )
-            );
-        }
+        // 3. Ensure ATA exists ahead of time (separate tx)
+        await ensureAtaExists(botWallet.publicKey, tokenMintPubkey);
 
         // 4. Pump.fun AMM.buy (the actual buy instruction)
         tx.add(...buyIx);
