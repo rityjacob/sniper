@@ -201,6 +201,71 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json(healthInfo);
 });
 
+// Self-ping mechanism to keep bot alive and monitor health
+let selfPingInterval: NodeJS.Timeout;
+
+function startSelfPing() {
+  const { SELF_PING_INTERVAL_MINUTES } = require('./config');
+  const pingInterval = SELF_PING_INTERVAL_MINUTES * 60 * 1000; // Convert minutes to milliseconds
+  
+  selfPingInterval = setInterval(async () => {
+    try {
+      const startTime = Date.now();
+      
+      // Ping our own health endpoint
+      const response = await fetch(`http://localhost:${PORT}/health`);
+      const healthData = await response.json();
+      
+      const pingTime = Date.now() - startTime;
+      
+      logger.logInfo('self-ping', `Bot health check - Status: ${healthData.status}, Response time: ${pingTime}ms`);
+      
+      // Additional health checks
+      const { walletManager } = await import('./wallet');
+      const balance = await walletManager.getBalance();
+      logger.logInfo('self-ping', `Wallet balance: ${balance.toFixed(4)} SOL`);
+      
+    } catch (error) {
+      logger.logError('self-ping', 'Self-ping failed', error instanceof Error ? error.message : String(error));
+    }
+  }, pingInterval);
+  
+  logger.logInfo('self-ping', `Self-ping mechanism started (every ${pingInterval / 1000 / 60} minutes)`);
+}
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  logger.logInfo('server', 'Shutting down gracefully...');
+  if (selfPingInterval) {
+    clearInterval(selfPingInterval);
+  }
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  logger.logInfo('server', 'Shutting down gracefully...');
+  if (selfPingInterval) {
+    clearInterval(selfPingInterval);
+  }
+  process.exit(0);
+});
+
 app.listen(PORT, () => {
   logger.logInfo('server', `Webhook server running on port ${PORT}`);
+  
+  // Start self-ping after server is running
+  setTimeout(() => {
+    startSelfPing();
+    
+    // Do an immediate health check
+    setTimeout(async () => {
+      try {
+        const response = await fetch(`http://localhost:${PORT}/health`);
+        const healthData = await response.json();
+        logger.logInfo('startup', `Initial health check - Status: ${healthData.status}`);
+      } catch (error) {
+        logger.logError('startup', 'Initial health check failed', error instanceof Error ? error.message : String(error));
+      }
+    }, 2000); // Initial check after 2 seconds
+  }, 10000); // Start after 10 seconds
 }); 

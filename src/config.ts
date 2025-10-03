@@ -17,6 +17,9 @@ export const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY || '';
 // Fixed SOL amount per trade (can be overridden via environment)
 export const FIXED_SOL_PER_TRADE = Number(process.env.FIXED_SOL_PER_TRADE) || 0.02;
 
+// Self-ping interval in minutes (fixed at 14 minutes)
+export const SELF_PING_INTERVAL_MINUTES = 14;
+
 interface TransactionConfig {
     maxSlippage: number;
     priorityFee: number;
