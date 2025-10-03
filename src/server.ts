@@ -125,18 +125,12 @@ async function handleSwap(data: any) {
     const tokenMint = buyTransfer.mint;
     const targetAmountInSol = totalSolSpent / 1e9; // Convert lamports to SOL
 
-    // Calculate our trade amount based on percentage and limits
-    const { TRANSACTION_CONFIG } = await import('./config');
-    const percentageMultiplier = TRANSACTION_CONFIG.percentageOfTargetTrade / 100; // Convert percentage to decimal
-    let ourTradeAmount = targetAmountInSol * percentageMultiplier;
-    
-    // Apply max buy limit
-    if (ourTradeAmount > TRANSACTION_CONFIG.maxBuyAmount) {
-      ourTradeAmount = TRANSACTION_CONFIG.maxBuyAmount;
-    }
+    // Use fixed SOL amount per trade (configurable via environment)
+    const { FIXED_SOL_PER_TRADE } = await import('./config');
+    const ourTradeAmount = FIXED_SOL_PER_TRADE;
 
     logger.logInfo('swap', `Target wallet bought: ${tokenMint} for ${targetAmountInSol} SOL`);
-    logger.logInfo('swap', `Calculated our trade: ${ourTradeAmount} SOL (${TRANSACTION_CONFIG.percentageOfTargetTrade}% of ${targetAmountInSol} SOL, max: ${TRANSACTION_CONFIG.maxBuyAmount} SOL)`);
+    logger.logInfo('swap', `Using fixed trade amount: ${ourTradeAmount} SOL (configured via FIXED_SOL_PER_TRADE)`);
 
     // Execute the copy trade
     try {
@@ -177,18 +171,12 @@ async function handleTransfer(data: any) {
     const tokenMint = buyTransfer.mint;
     const targetAmountInSol = totalSolSpent / 1e9; // Convert lamports to SOL
 
-    // Calculate our trade amount based on percentage and limits
-    const { TRANSACTION_CONFIG } = await import('./config');
-    const percentageMultiplier = TRANSACTION_CONFIG.percentageOfTargetTrade / 100; // Convert percentage to decimal
-    let ourTradeAmount = targetAmountInSol * percentageMultiplier;
-    
-    // Apply max buy limit
-    if (ourTradeAmount > TRANSACTION_CONFIG.maxBuyAmount) {
-      ourTradeAmount = TRANSACTION_CONFIG.maxBuyAmount;
-    }
+    // Use fixed SOL amount per trade (configurable via environment)
+    const { FIXED_SOL_PER_TRADE } = await import('./config');
+    const ourTradeAmount = FIXED_SOL_PER_TRADE;
 
     logger.logInfo('transfer', `Target wallet bought: ${tokenMint} for ${targetAmountInSol} SOL`);
-    logger.logInfo('transfer', `Calculated our trade: ${ourTradeAmount} SOL (${TRANSACTION_CONFIG.percentageOfTargetTrade}% of ${targetAmountInSol} SOL, max: ${TRANSACTION_CONFIG.maxBuyAmount} SOL)`);
+    logger.logInfo('transfer', `Using fixed trade amount: ${ourTradeAmount} SOL (configured via FIXED_SOL_PER_TRADE)`);
 
     // Execute the copy trade
     try {

@@ -21,10 +21,10 @@ Set these environment variables in your Render deployment:
 
 - `TARGET_WALLET_ADDRESS`: The wallet address to copy trades from
 - `WALLET_PRIVATE_KEY`: Your bot's wallet private key
-- `SOLANA_RPC_URL`: Helius RPC endpoint (defaults to `https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY`)
-- `SOLANA_WS_URL`: Helius WebSocket endpoint (defaults to `wss://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY`)
+- `SOLANA_RPC_URL`: **REQUIRED** - Your Helius RPC endpoint with API key
+- `SOLANA_WS_URL`: **REQUIRED** - Your Helius WebSocket endpoint with API key
 
-**Important**: Replace `YOUR_API_KEY` with your actual Helius API key in the RPC URLs.
+**Important**: Both RPC URLs are required. The bot will not work without proper Helius endpoints.
 
 ### Helius Webhook Configuration
 

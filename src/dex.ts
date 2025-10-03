@@ -248,7 +248,9 @@ class DexManager {
                 }
             }
 
-            const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com');
+            const connection = new Connection(process.env.SOLANA_RPC_URL || (() => {
+                throw new Error('SOLANA_RPC_URL environment variable is required for Helius RPC');
+            })());
             const wallet = walletManager.getCurrentWallet();
 
             // Get quote from Jupiter

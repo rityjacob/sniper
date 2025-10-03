@@ -1,12 +1,21 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=8172c2cb-2ce0-476b-937a-f9d3c3250a8e';
-export const WS_URL = process.env.SOLANA_WS_URL || 'wss://mainnet.helius-rpc.com/?api-key=8172c2cb-2ce0-476b-937a-f9d3c3250a8e';
+// Helius RPC endpoints (required)
+export const RPC_URL = process.env.SOLANA_RPC_URL || (() => {
+  throw new Error('SOLANA_RPC_URL environment variable is required. Please provide your Helius RPC endpoint.');
+})();
+
+export const WS_URL = process.env.SOLANA_WS_URL || (() => {
+  throw new Error('SOLANA_WS_URL environment variable is required. Please provide your Helius WebSocket endpoint.');
+})();
 export const NETWORK = 'mainnet-beta';
 
 export const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS || '';
 export const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY || '';
+
+// Fixed SOL amount per trade (can be overridden via environment)
+export const FIXED_SOL_PER_TRADE = Number(process.env.FIXED_SOL_PER_TRADE) || 0.02;
 
 interface TransactionConfig {
     maxSlippage: number;
