@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: sniper-bot
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    # Add your environment variables in Render dashboard:
+    # TARGET_WALLET_ADDRESS
+    # WALLET_PRIVATE_KEY  
+    # SOLANA_RPC_URL
+    # SOLANA_WS_URL
+    # FIXED_SOL_PER_TRADE (optional, defaults to 0.02)

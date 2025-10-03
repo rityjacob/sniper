@@ -1,18 +1,27 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-// Helius RPC endpoints (required)
-export const RPC_URL = process.env.SOLANA_RPC_URL || (() => {
-  throw new Error('SOLANA_RPC_URL environment variable is required. Please provide your Helius RPC endpoint.');
-})();
+// Environment variable validation
+const requiredEnvVars = [
+  'TARGET_WALLET_ADDRESS',
+  'WALLET_PRIVATE_KEY', 
+  'SOLANA_RPC_URL',
+  'SOLANA_WS_URL'
+];
 
-export const WS_URL = process.env.SOLANA_WS_URL || (() => {
-  throw new Error('SOLANA_WS_URL environment variable is required. Please provide your Helius WebSocket endpoint.');
-})();
+requiredEnvVars.forEach(envVar => {
+  if (!process.env[envVar]) {
+    throw new Error(`Required environment variable ${envVar} is not set. Please check your .env file or environment configuration.`);
+  }
+});
+
+// Helius RPC endpoints (required)
+export const RPC_URL = process.env.SOLANA_RPC_URL!;
+export const WS_URL = process.env.SOLANA_WS_URL!;
 export const NETWORK = 'mainnet-beta';
 
-export const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS || '';
-export const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY || '';
+export const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS!;
+export const WALLET_PRIVATE_KEY = process.env.WALLET_PRIVATE_KEY!;
 
 // Fixed SOL amount per trade (can be overridden via environment)
 export const FIXED_SOL_PER_TRADE = Number(process.env.FIXED_SOL_PER_TRADE) || 0.02;

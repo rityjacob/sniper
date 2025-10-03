@@ -2,6 +2,8 @@ import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { dexManager } from './dex';
 import { logger } from './utils/logger';
 
@@ -10,7 +12,19 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(bodyParser.json());
+// Security middleware
+app.use(helmet());
+
+// Rate limiting for webhook endpoint
+const webhookLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many webhook requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(bodyParser.json({ limit: '10mb' })); // Limit request size
 
 if (!process.env.TARGET_WALLET_ADDRESS) {
   logger.logError('system', 'TARGET_WALLET_ADDRESS environment variable is not set');
@@ -18,7 +32,7 @@ if (!process.env.TARGET_WALLET_ADDRESS) {
 }
 
 // Webhook endpoint for Helius
-app.post('/webhook', async (req: Request, res: Response) => {
+app.post('/webhook', webhookLimiter, async (req: Request, res: Response) => {
   console.log('=== WEBHOOK RECEIVED ===');
   console.log('Timestamp:', new Date().toISOString());
   console.log('Event Type:', req.body.type || 'Unknown');
@@ -192,14 +206,33 @@ async function handleTransfer(data: any) {
 }
 
 // Health check endpoint
-app.get('/health', (_req: Request, res: Response) => {
-  const healthInfo = {
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    targetWallet: process.env.TARGET_WALLET_ADDRESS ? 'Set' : 'Not Set',
-    port: PORT
-  };
-  res.status(200).json(healthInfo);
+app.get('/health', async (_req: Request, res: Response) => {
+  try {
+    const { walletManager } = await import('./wallet');
+    const balance = await walletManager.getBalance();
+    
+    const healthInfo = {
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      targetWallet: process.env.TARGET_WALLET_ADDRESS ? 'Set' : 'Not Set',
+      port: PORT,
+      walletBalance: balance,
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      version: process.env.npm_package_version || '1.0.0'
+    };
+    res.status(200).json(healthInfo);
+  } catch (error) {
+    const healthInfo = {
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      error: error instanceof Error ? error.message : 'Unknown error',
+      port: PORT,
+      uptime: process.uptime(),
+      memory: process.memoryUsage()
+    };
+    res.status(500).json(healthInfo);
+  }
 });
 
 // Self-ping mechanism to keep bot alive and monitor health
