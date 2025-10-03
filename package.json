@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/rityjacob/sniper#readme",
   "dependencies": {
+    "@pump-fun/pump-swap-sdk": "^1.7.9",
     "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.2",
     "body-parser": "^2.2.0",

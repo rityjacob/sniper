@@ -20,6 +20,9 @@ export const FIXED_SOL_PER_TRADE = Number(process.env.FIXED_SOL_PER_TRADE) || 0.
 // Self-ping interval in minutes (fixed at 14 minutes)
 export const SELF_PING_INTERVAL_MINUTES = 14;
 
+// Pump AMM Program ID (can be overridden via env if needed)
+export const PUMP_PROGRAM_ID = process.env.PUMP_PROGRAM_ID || 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61';
+
 interface TransactionConfig {
     maxSlippage: number;
     priorityFee: number;

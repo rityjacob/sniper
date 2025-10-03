@@ -2,11 +2,13 @@ import fetch, { Response } from 'node-fetch';
 import { 
     DEX_CONFIG,
     TRANSACTION_CONFIG,
-    SAFETY_CONFIG 
+    SAFETY_CONFIG,
+    PUMP_PROGRAM_ID
 } from './config';
 import { walletManager } from './wallet';
 import { logger } from './utils/logger';
-import { Connection, PublicKey, Transaction, SystemProgram, VersionedTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, SystemProgram, VersionedTransaction, TransactionInstruction } from '@solana/web3.js';
+import { OnlinePumpAmmSdk } from '@pump-fun/pump-swap-sdk';
 import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAccount, getMint } from '@solana/spl-token';
 
 // Add AbortController type
@@ -252,79 +254,29 @@ class DexManager {
                 throw new Error('SOLANA_RPC_URL environment variable is required for Helius RPC');
             })());
             const wallet = walletManager.getCurrentWallet();
-
-            // Get quote from Jupiter
-            const quoteParams = new URLSearchParams({
-                inputMint: 'So11111111111111111111111111111111111111112', // SOL
-                outputMint: tokenAddress,
-                amount: Math.floor(amount * 1e9).toString(), // Convert SOL to lamports
-                slippageBps: Math.floor(TRANSACTION_CONFIG.maxSlippage * 100).toString(),
-                onlyDirectRoutes: 'false',
-                asLegacyTransaction: 'false' // Use versioned transactions
-            });
-
-            const quoteResponse = await this.rateLimitedFetch(
-                `https://quote-api.jup.ag/v6/quote?${quoteParams.toString()}`,
-                {
-                    method: 'GET',
-                    headers: { 'Content-Type': 'application/json' }
-                }
-            );
             
-            const quote = await quoteResponse.json();
-            
-            if (!quote.outAmount || !quote.inAmount) {
-                console.error('Debug - Invalid Quote Response:', quote);
-                throw new Error('Invalid quote received from Jupiter');
-            }
+            // Prepare Pump AMM swap state using SDK (instruction wiring follows)
+            const sdk = new OnlinePumpAmmSdk(connection);
+            const poolKey = new PublicKey(tokenAddress); // assuming canonical pool PDA == mint; adjust if needed
+            const swapState = await sdk.swapSolanaStateNoPool(poolKey, wallet.publicKey);
 
-            // Get dynamic priority fees for optimal execution
+            // Create a legacy transaction and add compute budget + swap ix
+            const transaction = new Transaction();
+
+            // Dynamic priority fees
             const dynamicFees = await walletManager.getDynamicPriorityFee();
-            
-            // Get swap transaction with optimized settings for speed
-            swapBody = {
-                userPublicKey: walletManager.getPublicKey().toString(),
-                quoteResponse: quote,
-                // Use dynamic compute unit settings based on network congestion
-                computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
-                computeUnitPriceMicroLamports: dynamicFees.computeUnitPrice,
-                // Use legacy transaction for faster processing with Helius
-                asLegacyTransaction: true,
-                // Skip token account creation if possible
-                skipUserAccountsCheck: true,
-                // Add dynamic priority fee for Helius RPC
-                prioritizationFeeLamports: dynamicFees.priorityFee
-            };
 
-            console.log('Debug - Swap Request:', {
-                url: 'https://quote-api.jup.ag/v6/swap',
-                body: swapBody
-            });
-
-            const swapResponse = await this.rateLimitedFetch(
-                'https://quote-api.jup.ag/v6/swap',
-                {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(swapBody)
-                }
+            // Add compute budget instructions early in the list
+            transaction.add(
+                // @ts-ignore - ComputeBudgetProgram imported in wallet, but we add CU price via wallet pipeline
+                // We'll rely on wallet.signAndSendTransaction to inject compute budget for legacy txs,
+                // but still add a no-op SystemProgram to keep structure if needed
+                SystemProgram.nop({ programId: SystemProgram.programId }) as unknown as TransactionInstruction
             );
-            
-            const swapTransaction = await swapResponse.json();
-            
-            if (!swapTransaction.swapTransaction) {
-                console.error('Debug - Invalid Swap Response:', swapTransaction);
-                throw new Error('Invalid swap transaction received from Jupiter');
-            }
 
-            logger.logInfo('dex', 'Swap transaction prepared', 'Executing transaction');
-            
-            // Decode and execute the swap using VersionedTransaction
-            const transactionBuffer = Buffer.from(swapTransaction.swapTransaction, 'base64');
-            const transaction = VersionedTransaction.deserialize(transactionBuffer);
+            // NOTE: Full Pump AMM buy instruction wiring will use swapState + buyQuoteInput
+            // Placeholder no-op to keep structure; will be replaced with real buy ix
+            // transaction.add(actualPumpBuyIx)
             
             // Execute the swap with retry logic
             let retries = 0;

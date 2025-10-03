@@ -384,8 +384,8 @@ export class WalletManager {
             
             const medianFeePerCu = feesPerCu[Math.floor(feesPerCu.length / 2)];
             
-            // Add 10-30% above median to stay ahead of the competition
-            const competitiveMultiplier = 1.1 + (Math.random() * 0.2); // 1.1x to 1.3x
+            // Add exactly +10% above median
+            const competitiveMultiplier = 1.1;
             const dynamicComputeUnitPrice = Math.max(
                 Math.floor(medianFeePerCu * competitiveMultiplier),
                 TRANSACTION_CONFIG.computeUnitPrice // Never go below minimum
