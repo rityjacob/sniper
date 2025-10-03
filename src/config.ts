@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY';
-export const WS_URL = process.env.SOLANA_WS_URL || 'wss://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY';
+export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=8172c2cb-2ce0-476b-937a-f9d3c3250a8e';
+export const WS_URL = process.env.SOLANA_WS_URL || 'wss://mainnet.helius-rpc.com/?api-key=8172c2cb-2ce0-476b-937a-f9d3c3250a8e';
 export const NETWORK = 'mainnet-beta';
 
 export const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS || '';
