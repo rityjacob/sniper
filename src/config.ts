@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-export const WS_URL = process.env.SOLANA_WS_URL || 'wss://api.mainnet-beta.solana.com';
+export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY';
+export const WS_URL = process.env.SOLANA_WS_URL || 'wss://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY';
 export const NETWORK = 'mainnet-beta';
 
 export const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS || '';
@@ -54,8 +54,8 @@ export const TRANSACTION_CONFIG: TransactionConfig = {
     maxSolPerTrade: Number(process.env.MAX_SOL_PER_TRADE) || 0.1,
     percentageOfTargetTrade: Number(process.env.PERCENTAGE_OF_TARGET_TRADE) || 1,
     maxBuyAmount: 1,
-    computeUnitLimit: 1400000,
-    computeUnitPrice: 5000,
+    computeUnitLimit: 200000, // Optimized for Pump.fun swaps
+    computeUnitPrice: 10000, // Above network median for faster processing
 };
 
 export const DEX_CONFIG: DexConfig = {

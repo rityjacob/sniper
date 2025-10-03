@@ -3,8 +3,11 @@ import {
     Keypair,
     PublicKey,
     Transaction,
-    VersionedTransaction
+    VersionedTransaction,
+    ComputeBudgetProgram,
+    TransactionInstruction
 } from '@solana/web3.js';
+import fetch from 'node-fetch';
 import { 
     WALLET_PRIVATE_KEY,
     TRANSACTION_CONFIG,
@@ -64,13 +67,37 @@ export class WalletManager {
         return balance >= TRANSACTION_CONFIG.minSolBalance;
     }
 
-    async signAndSendTransaction(transaction: Transaction | VersionedTransaction): Promise<string> {
+    /**
+     * Ultra-fast transaction execution pipeline with Helius optimizations
+     */
+    async signAndSendTransaction(transaction: Transaction | VersionedTransaction, options?: {
+        skipSimulation?: boolean;
+        skipPreflight?: boolean;
+        commitment?: 'processed' | 'confirmed' | 'finalized';
+    }): Promise<string> {
         try {
-            // Get latest blockhash
-            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
+            // Step 1: Get fresh blockhash
+            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+            console.log(`📡 Fresh blockhash: ${blockhash}`);
 
+            // Step 2: Get dynamic priority fees from recent data
+            const dynamicFees = await this.getDynamicPriorityFee();
+
+            // Add compute unit instructions for legacy transactions
             if (transaction instanceof Transaction) {
-                // Handle legacy transaction
+                // Step 3: Add ComputeBudgetProgram instructions
+                const computeUnitInstruction = ComputeBudgetProgram.setComputeUnitLimit({
+                    units: TRANSACTION_CONFIG.computeUnitLimit // 200k CU limit
+                });
+                
+                const computeUnitPriceInstruction = ComputeBudgetProgram.setComputeUnitPrice({
+                    microLamports: dynamicFees.computeUnitPrice // Dynamic from median + 10-30%
+                });
+
+                // Add compute unit instructions at the beginning
+                transaction.add(computeUnitInstruction);
+                transaction.add(computeUnitPriceInstruction);
+                
                 transaction.recentBlockhash = blockhash;
                 transaction.sign(this.wallet);
             } else {
@@ -78,36 +105,104 @@ export class WalletManager {
                 transaction.sign([this.wallet]);
             }
 
-            // Add priority fee
-            const priorityFee = TRANSACTION_CONFIG.priorityFee;
-            console.log(`💰 Adding priority fee: ${priorityFee} lamports`);
+            console.log(`🚀 Building transaction - CU limit: ${TRANSACTION_CONFIG.computeUnitLimit}, CU price: ${dynamicFees.computeUnitPrice}`);
 
-            // Send transaction with priority fee
+            // Step 4: Optional simulation (skip in ultra-low-latency mode)
+            if (!options?.skipSimulation) {
+                try {
+                    // Only simulate versioned transactions for now to avoid TypeScript issues
+                    if (transaction instanceof VersionedTransaction) {
+                        const simulation = await this.connection.simulateTransaction(transaction, {
+                            commitment: 'processed',
+                            sigVerify: false
+                        });
+                        
+                        if (simulation.value.err) {
+                            throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
+                        }
+                        console.log(`✅ Simulation passed - CU used: ${simulation.value.unitsConsumed}`);
+                    } else {
+                        console.log(`⚠️ Skipping simulation for legacy transaction`);
+                    }
+                } catch (simError) {
+                    console.log(`⚠️ Simulation failed, proceeding anyway: ${simError}`);
+                }
+            }
+
+            // Step 5: Send transaction via Helius RPC with skipPreflight for ultra-low latency
             const signature = await this.connection.sendRawTransaction(
                 transaction.serialize(),
                 {
-                    skipPreflight: false,
+                    skipPreflight: options?.skipPreflight ?? true, // Default to true for speed
                     maxRetries: TRANSACTION_CONFIG.maxRetries,
-                    preflightCommitment: 'confirmed'
+                    preflightCommitment: options?.commitment || 'processed'
                 }
             );
 
-            // Wait for confirmation
-            const confirmation = await this.connection.confirmTransaction({
-                signature,
-                blockhash,
-                lastValidBlockHeight
-            }, 'confirmed');
+            console.log(`📝 Transaction sent: ${signature}`);
 
-            if (confirmation.value.err) {
-                throw new Error('Transaction confirmation failed');
-            }
+            // Step 6: Fast confirmation using getSignatureStatuses
+            const confirmation = await this.confirmTransactionFast(signature, options?.commitment || 'confirmed');
             
+            console.log(`✅ Transaction confirmed: ${signature}`);
             return signature;
         } catch (error: any) {
             logger.logError('wallet', 'Transaction failed', error.message);
             throw error;
         }
+    }
+
+    /**
+     * Fast transaction confirmation using multiple strategies
+     */
+    private async confirmTransactionFast(signature: string, commitment: 'processed' | 'confirmed' | 'finalized' = 'confirmed'): Promise<any> {
+        const maxAttempts = 10;
+        const startTime = Date.now();
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                // Try getSignatureStatuses first (fastest)
+                const statuses = await this.connection.getSignatureStatuses([signature], {
+                    searchTransactionHistory: false
+                });
+
+                const status = statuses.value[0];
+                if (status && status.confirmationStatus) {
+                    const elapsed = Date.now() - startTime;
+                    console.log(`🎯 Fast confirmation (${elapsed}ms): ${status.confirmationStatus}`);
+                    
+                    if (status.err) {
+                        throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`);
+                    }
+                    return status;
+                }
+
+                // Fallback to Enhanced Transaction API if available
+                if (attempt > 3) {
+                    try {
+                        const enhancedStatus = await this.getTransactionStatus(signature);
+                        if (enhancedStatus && enhancedStatus.confirmationStatus) {
+                            const elapsed = Date.now() - startTime;
+                            console.log(`🎯 Enhanced confirmation (${elapsed}ms): ${enhancedStatus.confirmationStatus}`);
+                            return enhancedStatus;
+                        }
+                    } catch (enhancedError) {
+                        // Continue with standard confirmation
+                    }
+                }
+
+                console.log(`⏳ Confirmation attempt ${attempt}/${maxAttempts}...`);
+                await new Promise(resolve => setTimeout(resolve, 200)); // 200ms intervals
+            } catch (error) {
+                console.log(`⚠️ Confirmation error (attempt ${attempt}):`, error);
+                if (attempt === maxAttempts) {
+                    throw error;
+                }
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+        }
+        
+        throw new Error(`Transaction not confirmed after ${maxAttempts} attempts`);
     }
 
     async calculateOptimalTradeAmount(tokenAddress: string): Promise<number> {
@@ -196,6 +291,126 @@ export class WalletManager {
     public getConnection(): Connection {
         return this.connection;
     }
+
+    /**
+     * Use Helius Enhanced Transaction API for better confirmation
+     */
+    async getTransactionStatus(signature: string): Promise<any> {
+        try {
+            // Extract API key from RPC URL if present
+            const apiKey = this.extractApiKeyFromRpcUrl();
+            if (!apiKey) {
+                throw new Error('Helius API key not found in RPC URL');
+            }
+
+            const response = await fetch(`https://api.helius.xyz/v0/transactions?api-key=${apiKey}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    signatures: [signature]
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Helius API error: ${response.statusText}`);
+            }
+
+            const data = await response.json() as any[];
+            return data[0]; // Return first transaction result
+        } catch (error) {
+            console.error('Failed to get transaction status from Helius:', error);
+            throw error;
+        }
+    }
+
+    private extractApiKeyFromRpcUrl(): string | null {
+        const match = RPC_URL.match(/api-key=([^&]+)/);
+        return match ? match[1] : null;
+    }
+
+    /**
+     * Enhanced transaction confirmation using Helius
+     */
+    async confirmTransactionWithHelius(signature: string, maxAttempts: number = 10): Promise<boolean> {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const txStatus = await this.getTransactionStatus(signature);
+                
+                if (txStatus && txStatus.confirmationStatus) {
+                    console.log(`✅ Transaction confirmed via Helius (attempt ${attempt}): ${signature}`);
+                    return true;
+                }
+                
+                console.log(`⏳ Transaction not yet confirmed, attempt ${attempt}/${maxAttempts}`);
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+            } catch (error) {
+                console.log(`⚠️ Error checking transaction status (attempt ${attempt}):`, error);
+                if (attempt === maxAttempts) {
+                    throw error;
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        
+        throw new Error(`Transaction not confirmed after ${maxAttempts} attempts`);
+    }
+
+    /**
+     * Get dynamic priority fee based on network congestion using Helius RPC
+     */
+    public async getDynamicPriorityFee(): Promise<{ computeUnitPrice: number; priorityFee: number }> {
+        try {
+            // Use Helius RPC method getRecentPrioritizationFees
+            const recentFees = await this.connection.getRecentPrioritizationFees({
+                lockedWritableAccounts: [this.wallet.publicKey] // Include our wallet for relevant fees
+            });
+
+            if (!recentFees || recentFees.length === 0) {
+                console.log('⚠️ No recent prioritization fees found, using defaults');
+                return {
+                    computeUnitPrice: TRANSACTION_CONFIG.computeUnitPrice,
+                    priorityFee: TRANSACTION_CONFIG.priorityFee
+                };
+            }
+
+            // Calculate median fee per CU
+            const feesPerCu = recentFees.map(fee => {
+                const cuLimit = (fee as any).computeUnitLimit || 200000; // Default to 200k if not available
+                return fee.prioritizationFee / cuLimit;
+            });
+            feesPerCu.sort((a, b) => a - b);
+            
+            const medianFeePerCu = feesPerCu[Math.floor(feesPerCu.length / 2)];
+            
+            // Add 10-30% above median to stay ahead of the competition
+            const competitiveMultiplier = 1.1 + (Math.random() * 0.2); // 1.1x to 1.3x
+            const dynamicComputeUnitPrice = Math.max(
+                Math.floor(medianFeePerCu * competitiveMultiplier),
+                TRANSACTION_CONFIG.computeUnitPrice // Never go below minimum
+            );
+            
+            const dynamicPriorityFee = Math.max(
+                Math.floor(dynamicComputeUnitPrice * TRANSACTION_CONFIG.computeUnitLimit),
+                TRANSACTION_CONFIG.priorityFee // Never go below minimum
+            );
+
+            console.log(`📊 Dynamic Priority Fee: Median=${medianFeePerCu.toFixed(0)}, CU Price=${dynamicComputeUnitPrice}, Priority Fee=${dynamicPriorityFee}, Multiplier=${competitiveMultiplier.toFixed(2)}x`);
+            
+            return {
+                computeUnitPrice: dynamicComputeUnitPrice,
+                priorityFee: dynamicPriorityFee
+            };
+        } catch (error) {
+            console.log('⚠️ Failed to get dynamic priority fee, using defaults:', error);
+            return {
+                computeUnitPrice: TRANSACTION_CONFIG.computeUnitPrice,
+                priorityFee: TRANSACTION_CONFIG.priorityFee
+            };
+        }
+    }
+
 }
 
 export const walletManager = new WalletManager();

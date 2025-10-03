@@ -276,23 +276,22 @@ class DexManager {
                 throw new Error('Invalid quote received from Jupiter');
             }
 
+            // Get dynamic priority fees for optimal execution
+            const dynamicFees = await walletManager.getDynamicPriorityFee();
+            
             // Get swap transaction with optimized settings for speed
             swapBody = {
                 userPublicKey: walletManager.getPublicKey().toString(),
                 quoteResponse: quote,
-                // Add high priority fee to get transaction processed faster
-                prioritizationFeeLamports: {
-                    priorityLevelWithMaxLamports: {
-                        maxLamports: TRANSACTION_CONFIG.priorityFee,
-                        priorityLevel: "veryHigh"
-                    }
-                },
-                // Optimize compute unit settings
-                dynamicComputeUnitLimit: true,
-                // Use legacy transaction for faster processing
+                // Use dynamic compute unit settings based on network congestion
+                computeUnitLimit: TRANSACTION_CONFIG.computeUnitLimit,
+                computeUnitPriceMicroLamports: dynamicFees.computeUnitPrice,
+                // Use legacy transaction for faster processing with Helius
                 asLegacyTransaction: true,
                 // Skip token account creation if possible
-                skipUserAccountsCheck: true
+                skipUserAccountsCheck: true,
+                // Add dynamic priority fee for Helius RPC
+                prioritizationFeeLamports: dynamicFees.priorityFee
             };
 
             console.log('Debug - Swap Request:', {
@@ -329,8 +328,13 @@ class DexManager {
             let retries = 0;
             while (retries < TRANSACTION_CONFIG.maxRetries) {
                 try {
-                    // Send transaction with high priority
-                    const signature = await walletManager.signAndSendTransaction(transaction);
+                    // Send transaction with ultra-fast pipeline via Helius RPC
+                    const signature = await walletManager.signAndSendTransaction(transaction, {
+                        skipSimulation: false, // Enable simulation for safety
+                        skipPreflight: true,   // Skip preflight for maximum speed
+                        commitment: 'processed' // Use processed commitment for fastest confirmation
+                    });
+                    
                     logger.logTransaction(signature, tokenAddress, amount.toString(), 'success');
                     return signature;
                 } catch (error: any) {

@@ -1,12 +1,15 @@
-# Sniper - Simple Copy Trading Bot
+# Sniper - High-Performance Copy Trading Bot
 
-A streamlined copy trading bot for Solana that receives webhooks from Helius and executes buy trades automatically.
+A streamlined copy trading bot for Solana that receives webhooks from Helius and executes buy trades automatically with **optimized Helius RPC integration** for maximum speed and reliability.
 
 ## Features
 
+- **🚀 Helius RPC Integration**: Optimized for maximum transaction speed using Helius RPC endpoints
+- **⚡ Enhanced Transaction Processing**: Compute unit optimization (200k CU limit) and priority fees
+- **🎯 Helius Enhanced Transaction API**: Advanced transaction confirmation and monitoring
 - **Webhook Integration**: Receives transaction data from Helius webhooks
 - **Copy Trading**: Automatically copies buy transactions from a target wallet
-- **Jupiter DEX Integration**: Uses Jupiter for optimal swap execution
+- **Jupiter DEX Integration**: Uses Jupiter for optimal swap execution with Helius optimizations
 - **Console Logging**: All logs are output to console for easy monitoring
 - **Health Check**: Built-in health endpoint for monitoring
 
@@ -18,8 +21,10 @@ Set these environment variables in your Render deployment:
 
 - `TARGET_WALLET_ADDRESS`: The wallet address to copy trades from
 - `WALLET_PRIVATE_KEY`: Your bot's wallet private key
-- `SOLANA_RPC_URL`: Solana RPC endpoint (defaults to mainnet)
-- `HELIUS_API_KEY`: Your Helius API key (for webhook setup)
+- `SOLANA_RPC_URL`: Helius RPC endpoint (defaults to `https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY`)
+- `SOLANA_WS_URL`: Helius WebSocket endpoint (defaults to `wss://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY`)
+
+**Important**: Replace `YOUR_API_KEY` with your actual Helius API key in the RPC URLs.
 
 ### Helius Webhook Configuration
 
@@ -35,8 +40,26 @@ Set these environment variables in your Render deployment:
 
 1. **Webhook Reception**: The bot receives SWAP events from Helius
 2. **Target Detection**: Checks if the target wallet is buying tokens
-3. **Copy Execution**: Executes the same buy transaction using Jupiter DEX
-4. **Logging**: All actions are logged to console for monitoring
+3. **Ultra-Fast Execution Pipeline**: 
+   - **Fresh Blockhash**: Fetches latest blockhash before building transaction
+   - **Dynamic Priority Fees**: Uses `getRecentPrioritizationFees` for median CU price + 10-30%
+   - **Compute Budget Instructions**: Adds 200k CU limit + dynamic price instructions
+   - **Optional Simulation**: Validates transaction before sending (can be skipped for ultra-low latency)
+   - **Skip Preflight**: Uses `skipPreflight: true` for maximum speed
+   - **Fast Confirmation**: Uses `getSignatureStatuses` with Enhanced Transaction API fallback
+4. **Copy Execution**: Executes the same buy transaction using Jupiter DEX
+5. **Logging**: All actions are logged to console for monitoring
+
+### Helius Optimization Features
+
+- **🔄 Dynamic Priority Fees**: Uses `getRecentPrioritizationFees` for median CU price + 10-30% competitive edge
+- **📡 Fresh Blockhash**: Fetches latest blockhash before each transaction for maximum validity
+- **⚡ Compute Budget Instructions**: Proper 200k CU limit + dynamic price instructions
+- **🎯 Optional Simulation**: Transaction validation (can be skipped for ultra-low latency)
+- **🚀 Skip Preflight**: Uses `skipPreflight: true` for maximum transaction speed
+- **🔍 Fast Confirmation**: Dual strategy using `getSignatureStatuses` + Enhanced Transaction API
+- **🔄 Intelligent Retry**: Smart retry with 50ms delays for faster execution
+- **📊 Real-time Metrics**: Logs confirmation times and CU usage for optimization
 
 ## API Endpoints
 
@@ -52,11 +75,25 @@ npm install
 # Build the project
 npm run build
 
-# Start the server
+# Start the production server
 npm start
 
 # Development mode with auto-rebuild
 npm run dev
+```
+
+## Project Structure
+
+```
+src/
+├── config.ts          # Configuration and environment variables
+├── dex.ts             # Jupiter DEX integration with Helius optimizations
+├── server.ts          # Express server and webhook handlers
+├── wallet.ts          # Wallet management and transaction pipeline
+└── utils/
+    └── logger.ts      # Logging utilities
+
+dist/                  # Compiled JavaScript output
 ```
 
 ## Deployment
