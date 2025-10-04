@@ -42,7 +42,7 @@ const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.c
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS || process.env.TARGET_WALLET_ADDRES;
 // Support legacy/alternate env var name used in some configs
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET || process.env.WALLET_PRIVATE_KEY;
-const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.08 SOL
+const FIXED_SOL_PER_TRADE = parseFloat(process.env.FIXED_SOL_PER_TRADE || '0.02'); // Default 0.02 SOL
 const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '50'); // Default 50%
 
 if (!TARGET_WALLET_ADDRESS) {
@@ -62,7 +62,7 @@ const pumpAmmSdk = new PumpAmmSdk();
 
 console.log('🚀 Bot wallet initialized:', botWallet.publicKey.toString());
 console.log('🎯 Target wallet:', TARGET_WALLET_ADDRESS);
-console.log('💰 Fixed buy amount:', FIXED_BUY_AMOUNT, 'SOL');
+console.log('💰 Fixed buy amount:', FIXED_SOL_PER_TRADE, 'SOL');
 
 // 3. Create Webhook Endpoint
 app.post('/webhook', webhookLimiter, async (req: Request, res: Response) => {
@@ -170,10 +170,10 @@ async function processWebhookAsync(webhookData: any) {
         console.log('🟢 BUY TRANSACTION DETECTED!');
         console.log(`   Token: ${buyInfo.tokenMint}`);
         console.log(`   Target spent: ${buyInfo.solAmount} SOL`);
-        console.log(`   Bot will buy: ${FIXED_BUY_AMOUNT} SOL (fixed amount)`);
+        console.log(`   Bot will buy: ${FIXED_SOL_PER_TRADE} SOL (fixed amount)`);
         
         // 6. Execute Buy via Pump.fun with fixed amount
-        await executePumpFunBuy(buyInfo.tokenMint, FIXED_BUY_AMOUNT);
+        await executePumpFunBuy(buyInfo.tokenMint, FIXED_SOL_PER_TRADE);
         
     } catch (error) {
         console.error('❌ Error processing webhook:', error);
@@ -348,7 +348,7 @@ app.get('/health', (req: Request, res: Response) => {
             timestamp: new Date().toISOString(),
         botWallet: botWallet.publicKey.toString(),
         targetWallet: TARGET_WALLET_ADDRESS,
-        fixedBuyAmount: FIXED_BUY_AMOUNT,
+        fixedBuyAmount: FIXED_SOL_PER_TRADE,
         rpcUrl: RPC_URL
     });
 });
@@ -398,7 +398,7 @@ app.listen(PORT, () => {
     console.log(`❤️  Health check: GET /health`);
     console.log(`🎯 Target wallet: ${TARGET_WALLET_ADDRESS}`);
     console.log(`🤖 Bot wallet: ${botWallet.publicKey.toString()}`);
-    console.log(`💰 Fixed buy amount: ${FIXED_BUY_AMOUNT} SOL`);
+    console.log(`💰 Fixed buy amount: ${FIXED_SOL_PER_TRADE} SOL`);
     
     // Start self-ping to keep server awake
     startSelfPing();

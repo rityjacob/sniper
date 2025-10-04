@@ -16,7 +16,7 @@ Set these environment variables in your Render dashboard:
 - `SOLANA_RPC_URL`: Your Helius RPC endpoint (e.g., `https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY`)
 
 ### Optional Variables:
-- `FIXED_BUY_AMOUNT`: Fixed SOL amount per trade (default: 0.08)
+- `FIXED_SOL_PER_TRADE`: Fixed SOL amount per trade (default: 0.02)
 - `SLIPPAGE_PERCENT`: Slippage tolerance percentage (default: 50)
 - `SELF_URL`: Your Render app URL for self-ping (auto-detected)
 
