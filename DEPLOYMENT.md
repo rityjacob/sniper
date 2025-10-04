@@ -12,15 +12,13 @@ Set these environment variables in your Render dashboard:
 
 ### Required Variables:
 - `TARGET_WALLET_ADDRESS`: The wallet address to copy trades from
-- `WALLET_PRIVATE_KEY`: Your bot's wallet private key (base58 encoded)
+- `WALLET_PRIVATE_KEY` or `BOT_WALLET_SECRET`: Your bot's wallet private key (base58 encoded)
 - `SOLANA_RPC_URL`: Your Helius RPC endpoint (e.g., `https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY`)
-- `SOLANA_WS_URL`: Your Helius WebSocket endpoint (e.g., `wss://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY`)
 
 ### Optional Variables:
-- `FIXED_SOL_PER_TRADE`: Fixed SOL amount per trade (default: 0.02)
-- `MIN_SOL_BALANCE`: Minimum SOL balance to maintain (default: 0.0001)
-- `MAX_SOL_PER_TRADE`: Maximum SOL per trade (default: 0.1)
-- `PERCENTAGE_OF_TARGET_TRADE`: Percentage of target trade to copy (default: 1)
+- `FIXED_BUY_AMOUNT`: Fixed SOL amount per trade (default: 0.08)
+- `SLIPPAGE_PERCENT`: Slippage tolerance percentage (default: 50)
+- `SELF_URL`: Your Render app URL for self-ping (auto-detected)
 
 ## Deployment Steps
 

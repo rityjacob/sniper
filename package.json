@@ -23,9 +23,10 @@
   },
   "homepage": "https://github.com/rityjacob/sniper#readme",
   "dependencies": {
-    "@pump-fun/pump-swap-sdk": "^1.0.0",
+    "@pump-fun/pump-swap-sdk": "^1.7.9",
     "@solana/spl-token": "^0.1.8",
     "@solana/web3.js": "^1.98.2",
+    "bn.js": "^5.2.2",
     "body-parser": "^2.2.0",
     "bs58": "^6.0.0",
     "dotenv": "^16.5.0",
@@ -35,6 +36,7 @@
     "node-fetch": "^2.7.0"
   },
   "devDependencies": {
+    "@types/bn.js": "^5.2.0",
     "@types/body-parser": "^1.19.6",
     "@types/express": "^5.0.3",
     "@types/jest": "^30.0.0",
