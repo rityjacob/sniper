@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
-import { Connection, PublicKey, Keypair, Transaction } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, Transaction, ComputeBudgetProgram } from '@solana/web3.js';
+import { RPC_URL } from './config';
 import BN from 'bn.js';
 import { 
     PumpAmmSdk,
@@ -37,13 +38,21 @@ const webhookLimiter = rateLimit({
 });
 
 // Environment validation
-const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 // Accept both correct and common misspelled env var names
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS || process.env.TARGET_WALLET_ADDRES;
 // Support legacy/alternate env var name used in some configs
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET || process.env.WALLET_PRIVATE_KEY;
 const FIXED_SOL_PER_TRADE = parseFloat(process.env.FIXED_SOL_PER_TRADE || '0.02'); // Default 0.02 SOL
-const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '50'); // Default 50%
+// Backward-compat slippage config: prefer SLIPPAGE_BPS (basis points). If only SLIPPAGE_PERCENT provided, convert to bps
+const SLIPPAGE_BPS = parseInt(process.env.SLIPPAGE_BPS || (process.env.SLIPPAGE_PERCENT ? String(Number(process.env.SLIPPAGE_PERCENT) * 100) : '4000')); // default 4000 (40%)
+
+// Reserve headroom in lamports to cover ATA rent + fees so swap input doesn't get squeezed and trip slippage
+// Defaults to ~0.005 SOL
+const HEADROOM_LAMPORTS = parseInt(process.env.HEADROOM_LAMPORTS || String(Math.floor(0.005 * 1e9)));
+
+// Compute budget defaults
+const DEFAULT_CU_LIMIT = parseInt(process.env.COMPUTE_UNIT_LIMIT || '200000');
+const MIN_CU_PRICE_MICROLAMPORTS = parseInt(process.env.COMPUTE_UNIT_PRICE || '10000');
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
@@ -289,7 +298,7 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
 }
 
 // 6. Execute Buy via Pump.fun
-async function executePumpFunBuy(tokenMint: string, amountSol: number) {
+async function executePumpFunBuy(tokenMint: string, amountSol: number, attempt: number = 0) {
     try {
         console.log(`🚀 Executing Pump.fun buy: ${amountSol} SOL for token ${tokenMint}`);
         console.log('📊 Token mint:', tokenMint);
@@ -297,7 +306,14 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         console.log('🤖 Bot wallet:', botWallet.publicKey.toString());
 
         // Convert SOL to lamports (1 SOL = 1e9 lamports)
-        const amountLamports = new BN(Math.floor(amountSol * 1e9));
+        const amountLamportsRaw = Math.floor(amountSol * 1e9);
+
+        // Subtract headroom so the SOL that actually reaches the AMM is below the budget, avoiding slippage due to fees/ATA rent
+        const effectiveLamports = Math.max(0, amountLamportsRaw - HEADROOM_LAMPORTS);
+        if (effectiveLamports <= 0) {
+            throw new Error(`Effective buy amount too small after headroom. amountLamports=${amountLamportsRaw}, headroom=${HEADROOM_LAMPORTS}`);
+        }
+        const amountLamports = new BN(effectiveLamports);
         const tokenMintPubkey = new PublicKey(tokenMint);
 
         // Build SwapSolanaState using the online SDK helper
@@ -305,11 +321,17 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
         const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
 
-        // Build buy instructions for a quote-in (SOL) swap
-        const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_PERCENT);
+        // Build buy instructions for a quote-in (SOL) swap using slippage in basis points
+        const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_BPS);
 
         // Create and send transaction
         const tx = new Transaction();
+
+        // Prepend compute budget Ixs with dynamic CU price for faster inclusion
+        const cuPrice = await getDynamicComputeUnitPrice(connection, botWallet.publicKey, MIN_CU_PRICE_MICROLAMPORTS);
+        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: DEFAULT_CU_LIMIT }));
+        tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: cuPrice }));
+
         tx.add(...buyIx);
         const { blockhash } = await connection.getLatestBlockhash();
         tx.recentBlockhash = blockhash;
@@ -327,17 +349,58 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         
     } catch (error) {
         console.error('❌ Pump.fun buy failed:', error);
+
+        // If SendTransactionError, try to surface logs for quicker diagnosis
+        // @ts-ignore
+        const logs: string[] | undefined = (error && (error.logs || error.transactionLogs)) as any;
+        if (logs && Array.isArray(logs)) {
+            console.error('🔎 Program logs:\n' + logs.join('\n'));
+        }
         
         // Retry logic for common errors
         const errorMessage = error instanceof Error ? error.message : String(error);
+        const exceededSlippage = errorMessage.includes('ExceededSlippage') || (logs || []).some(l => l.includes('ExceededSlippage'));
+        if (exceededSlippage && attempt < 3) {
+            // Strategy: on slippage, try one of two mitigations:
+            // 1) reduce effective input by an additional 2% each attempt
+            // 2) re-execute quickly with fresh swap state
+            const reducedAmountSol = amountSol * (1 - 0.02 * (attempt + 1));
+            console.log(`🔁 Exceeded slippage; retrying attempt ${attempt + 1} with reduced amount ${reducedAmountSol.toFixed(6)} SOL`);
+            return await executePumpFunBuy(tokenMint, reducedAmountSol, attempt + 1);
+        }
         if (errorMessage.includes('pool') || errorMessage.includes('not ready')) {
             console.log('🔄 Pool not ready, retrying in 2 seconds...');
             setTimeout(() => {
-                executePumpFunBuy(tokenMint, amountSol);
+                executePumpFunBuy(tokenMint, amountSol, attempt + 1);
             }, 2000);
         } else {
             throw error;
         }
+    }
+}
+
+// Estimate a competitive compute unit price based on recent fees, with a floor to ensure minimum speed
+async function getDynamicComputeUnitPrice(conn: Connection, account: PublicKey, floorMicrolamports: number): Promise<number> {
+    try {
+        // @ts-ignore - available on recent web3.js versions (Helius supports it)
+        const recent = await conn.getRecentPrioritizationFees({ lockedWritableAccounts: [account] });
+        if (!recent || !Array.isArray(recent) || recent.length === 0) return floorMicrolamports;
+
+        // Compute median fee per CU if computeUnitLimit is present; otherwise fallback to priority fees
+        const feesPerCu: number[] = [];
+        for (const f of recent) {
+            const cuLimit = (f as any).computeUnitLimit || DEFAULT_CU_LIMIT;
+            if (typeof f.prioritizationFee === 'number' && cuLimit > 0) {
+                feesPerCu.push(Math.floor(f.prioritizationFee / cuLimit));
+            }
+        }
+        if (feesPerCu.length === 0) return floorMicrolamports;
+        feesPerCu.sort((a, b) => a - b);
+        const median = feesPerCu[Math.floor(feesPerCu.length / 2)];
+        const boosted = Math.max(Math.floor(median * 1.1), floorMicrolamports); // +10% above median
+        return boosted;
+    } catch {
+        return floorMicrolamports;
     }
 }
 
