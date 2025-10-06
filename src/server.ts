@@ -48,7 +48,10 @@ const SLIPPAGE_BPS = parseInt(process.env.SLIPPAGE_BPS || (process.env.SLIPPAGE_
 
 // Reserve headroom in lamports to cover ATA rent + fees so swap input doesn't get squeezed and trip slippage
 // Defaults to ~0.005 SOL
-const HEADROOM_LAMPORTS = parseInt(process.env.HEADROOM_LAMPORTS || String(Math.floor(0.005 * 1e9)));
+const HEADROOM_LAMPORTS = parseInt(process.env.HEADROOM_LAMPORTS || String(Math.floor(0.01 * 1e9))); // default 0.01 SOL
+
+// Keep a reserve so we don't drain wallet below fees/rent. Default 0.02 SOL
+const RESERVE_LAMPORTS = parseInt(process.env.RESERVE_LAMPORTS || String(Math.floor(0.02 * 1e9)));
 
 // Compute budget defaults
 const DEFAULT_CU_LIMIT = parseInt(process.env.COMPUTE_UNIT_LIMIT || '200000');
@@ -61,7 +64,7 @@ if (!TARGET_WALLET_ADDRESS) {
 
 if (!BOT_WALLET_SECRET) {
     console.error('❌ BOT_WALLET_SECRET (or WALLET_PRIVATE_KEY) environment variable is required');
-    process.exit(1);
+  process.exit(1);
 }
 
 // 2. Initialize Clients
@@ -306,14 +309,21 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, attempt: 
         console.log('🤖 Bot wallet:', botWallet.publicKey.toString());
 
         // Convert SOL to lamports (1 SOL = 1e9 lamports)
-        const amountLamportsRaw = Math.floor(amountSol * 1e9);
+        const amountLamportsRawDesired = Math.floor(amountSol * 1e9);
+
+        // Ensure we never exceed current balance minus reserve
+        const currentBalanceLamports = await connection.getBalance(botWallet.publicKey);
+        const maxSpendLamports = Math.max(0, currentBalanceLamports - RESERVE_LAMPORTS);
+        const cappedLamportsRaw = Math.min(amountLamportsRawDesired, maxSpendLamports);
 
         // Subtract headroom so the SOL that actually reaches the AMM is below the budget, avoiding slippage due to fees/ATA rent
-        const effectiveLamports = Math.max(0, amountLamportsRaw - HEADROOM_LAMPORTS);
+        const effectiveLamports = Math.max(0, cappedLamportsRaw - HEADROOM_LAMPORTS);
         if (effectiveLamports <= 0) {
-            throw new Error(`Effective buy amount too small after headroom. amountLamports=${amountLamportsRaw}, headroom=${HEADROOM_LAMPORTS}`);
+            throw new Error(`Effective buy amount too small after headroom/reserve. desired=${amountLamportsRawDesired}, capped=${cappedLamportsRaw}, headroom=${HEADROOM_LAMPORTS}, balance=${currentBalanceLamports}`);
         }
         const amountLamports = new BN(effectiveLamports);
+
+        console.log(`🧮 Spend planning: balance=${(currentBalanceLamports/1e9).toFixed(6)} SOL, desired=${(amountLamportsRawDesired/1e9).toFixed(6)} SOL, capped=${(cappedLamportsRaw/1e9).toFixed(6)} SOL, effective=${(effectiveLamports/1e9).toFixed(6)} SOL, headroom=${(HEADROOM_LAMPORTS/1e9).toFixed(6)} SOL, reserve=${(RESERVE_LAMPORTS/1e9).toFixed(6)} SOL`);
         const tokenMintPubkey = new PublicKey(tokenMint);
 
         // Build SwapSolanaState using the online SDK helper
@@ -401,14 +411,14 @@ async function getDynamicComputeUnitPrice(conn: Connection, account: PublicKey, 
         return boosted;
     } catch {
         return floorMicrolamports;
-    }
+  }
 }
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
         res.status(200).json({
         status: 'healthy',
-            timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
         botWallet: botWallet.publicKey.toString(),
         targetWallet: TARGET_WALLET_ADDRESS,
         fixedBuyAmount: FIXED_SOL_PER_TRADE,
@@ -440,7 +450,7 @@ function startSelfPing() {
             } else {
                 console.log(`⚠️  Self-ping failed with status: ${response.status}`);
             }
-        } catch (error) {
+    } catch (error) {
             console.error(`❌ Self-ping error:`, error);
         }
     };
