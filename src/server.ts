@@ -300,6 +300,24 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
     };
 }
 
+// Pre-transaction balance validation
+async function validateBalance(amountSol: number): Promise<void> {
+    const currentBalanceLamports = await connection.getBalance(botWallet.publicKey);
+    const currentBalanceSol = currentBalanceLamports / 1e9;
+    
+    // Simple check: ensure we have the amount + a reasonable buffer for fees
+    // ATA rent exemption is the main cost (~0.002 SOL), plus some buffer for transaction fees
+    const BUFFER_SOL = 0.01; // 0.01 SOL buffer should be more than enough
+    const requiredBalance = amountSol + BUFFER_SOL;
+    
+    console.log(`💰 Balance check: Current=${currentBalanceSol.toFixed(6)} SOL, Required=${requiredBalance.toFixed(6)} SOL (amount=${amountSol.toFixed(6)} + buffer=${BUFFER_SOL.toFixed(6)})`);
+    
+    if (currentBalanceSol < requiredBalance) {
+        const shortfall = requiredBalance - currentBalanceSol;
+        throw new Error(`Insufficient balance: Need ${requiredBalance.toFixed(6)} SOL but only have ${currentBalanceSol.toFixed(6)} SOL. Shortfall: ${shortfall.toFixed(6)} SOL`);
+    }
+}
+
 // 6. Execute Buy via Pump.fun
 async function executePumpFunBuy(tokenMint: string, amountSol: number, attempt: number = 0) {
     try {
@@ -308,22 +326,18 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, attempt: 
         console.log('💰 Amount SOL:', amountSol);
         console.log('🤖 Bot wallet:', botWallet.publicKey.toString());
 
+        // Validate balance before attempting transaction
+        await validateBalance(amountSol);
+
         // Convert SOL to lamports (1 SOL = 1e9 lamports)
         const amountLamportsRawDesired = Math.floor(amountSol * 1e9);
+        const amountLamports = new BN(amountLamportsRawDesired);
 
-        // Ensure we never exceed current balance minus reserve
+        // Get current balance for logging
         const currentBalanceLamports = await connection.getBalance(botWallet.publicKey);
-        const maxSpendLamports = Math.max(0, currentBalanceLamports - RESERVE_LAMPORTS);
-        const cappedLamportsRaw = Math.min(amountLamportsRawDesired, maxSpendLamports);
-
-        // Subtract headroom so the SOL that actually reaches the AMM is below the budget, avoiding slippage due to fees/ATA rent
-        const effectiveLamports = Math.max(0, cappedLamportsRaw - HEADROOM_LAMPORTS);
-        if (effectiveLamports <= 0) {
-            throw new Error(`Effective buy amount too small after headroom/reserve. desired=${amountLamportsRawDesired}, capped=${cappedLamportsRaw}, headroom=${HEADROOM_LAMPORTS}, balance=${currentBalanceLamports}`);
-        }
-        const amountLamports = new BN(effectiveLamports);
-
-        console.log(`🧮 Spend planning: balance=${(currentBalanceLamports/1e9).toFixed(6)} SOL, desired=${(amountLamportsRawDesired/1e9).toFixed(6)} SOL, capped=${(cappedLamportsRaw/1e9).toFixed(6)} SOL, effective=${(effectiveLamports/1e9).toFixed(6)} SOL, headroom=${(HEADROOM_LAMPORTS/1e9).toFixed(6)} SOL, reserve=${(RESERVE_LAMPORTS/1e9).toFixed(6)} SOL`);
+        const currentBalanceSol = currentBalanceLamports / 1e9;
+        
+        console.log(`🧮 Transaction details: balance=${currentBalanceSol.toFixed(6)} SOL, buying=${amountSol.toFixed(6)} SOL, reserve=${(RESERVE_LAMPORTS/1e9).toFixed(6)} SOL`);
         const tokenMintPubkey = new PublicKey(tokenMint);
 
         // Build SwapSolanaState using the online SDK helper
@@ -367,8 +381,22 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, attempt: 
             console.error('🔎 Program logs:\n' + logs.join('\n'));
         }
         
-        // Retry logic for common errors
+        // Check for insufficient balance errors
         const errorMessage = error instanceof Error ? error.message : String(error);
+        const insufficientBalance = errorMessage.includes('insufficient lamports') || 
+                                   errorMessage.includes('Insufficient balance') ||
+                                   (logs || []).some(l => l.includes('insufficient lamports'));
+        
+        if (insufficientBalance) {
+            console.error('💸 INSUFFICIENT BALANCE ERROR:');
+            console.error('   The wallet does not have enough SOL to complete this transaction.');
+            console.error('   This includes the buy amount + transaction fees + ATA rent + reserve.');
+            console.error('   Please fund the wallet with more SOL and try again.');
+            console.error(`   Current error: ${errorMessage}`);
+            return; // Don't retry on insufficient balance
+        }
+        
+        // Retry logic for common errors
         const exceededSlippage = errorMessage.includes('ExceededSlippage') || (logs || []).some(l => l.includes('ExceededSlippage'));
         if (exceededSlippage && attempt < 3) {
             // Strategy: on slippage, try one of two mitigations:
