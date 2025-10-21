@@ -231,17 +231,29 @@ async function executeCopyTrade(tokenMint: string) {
     try {
         console.log(`🚀 Executing copy trade: ${FIXED_SOL_PER_TRADE} SOL for token ${tokenMint}`);
         
-        // Validate balance
+        // Get current balance
         const currentBalance = await connection.getBalance(botWallet.publicKey);
         const currentBalanceSol = currentBalance / 1e9;
-        const requiredBalance = FIXED_SOL_PER_TRADE + 0.01; // Add buffer for fees
         
-        if (currentBalanceSol < requiredBalance) {
-            throw new Error(`Insufficient balance: Need ${requiredBalance} SOL but only have ${currentBalanceSol} SOL`);
+        // Calculate safe trade amount (leave 0.01 SOL for fees and rent)
+        const safeTradeAmount = Math.max(0, currentBalanceSol - 0.01);
+        
+        if (safeTradeAmount <= 0) {
+            throw new Error(`Insufficient balance: Need at least 0.01 SOL for fees, but only have ${currentBalanceSol} SOL`);
         }
         
+        // Use the smaller of fixed amount or safe amount
+        const actualTradeAmount = Math.min(FIXED_SOL_PER_TRADE, safeTradeAmount);
+        
+        // Check if trade amount is too small
+        if (actualTradeAmount < 0.001) {
+            throw new Error(`Trade amount too small: ${actualTradeAmount.toFixed(6)} SOL (minimum 0.001 SOL)`);
+        }
+        
+        console.log(`💰 Balance: ${currentBalanceSol.toFixed(6)} SOL, Safe trade amount: ${safeTradeAmount.toFixed(6)} SOL, Actual trade: ${actualTradeAmount.toFixed(6)} SOL`);
+        
         // Convert SOL to lamports
-        const amountLamports = new BN(Math.floor(FIXED_SOL_PER_TRADE * 1e9));
+        const amountLamports = new BN(Math.floor(actualTradeAmount * 1e9));
         const tokenMintPubkey = new PublicKey(tokenMint);
         
         // Ensure token account exists
@@ -286,6 +298,18 @@ async function executeCopyTrade(tokenMint: string) {
         const logs = (error as any)?.logs;
         if (logs && Array.isArray(logs)) {
             console.error('🔎 Program logs:\n' + logs.join('\n'));
+        }
+        
+        // Check for specific error types
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        
+        if (errorMessage.includes('insufficient lamports') || errorMessage.includes('Insufficient balance')) {
+            console.error('💸 INSUFFICIENT BALANCE: The bot wallet needs more SOL to execute trades.');
+            console.error('   Please fund the bot wallet with more SOL and try again.');
+        } else if (errorMessage.includes('Trade amount too small')) {
+            console.error('⚠️ TRADE TOO SMALL: The available balance is too low for a meaningful trade.');
+        } else {
+            console.error('🔧 UNKNOWN ERROR: Please check the logs above for more details.');
         }
     }
 }
