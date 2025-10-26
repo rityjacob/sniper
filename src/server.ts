@@ -4,7 +4,7 @@ import { Connection, PublicKey, Keypair, Transaction, ComputeBudgetProgram } fro
 import { 
     Token
 } from '@solana/spl-token';
-import { RPC_URL } from './config';
+import { RPC_URL, HELIUS_API_KEY, COMPUTE_UNIT_LIMIT, COMPUTE_UNIT_PRICE } from './config';
 import BN from 'bn.js';
 import { 
     PumpAmmSdk,
@@ -235,11 +235,11 @@ async function executeCopyTrade(tokenMint: string) {
         const currentBalance = await connection.getBalance(botWallet.publicKey);
         const currentBalanceSol = currentBalance / 1e9;
         
-        // Calculate safe trade amount (leave 0.01 SOL for fees and rent)
-        const safeTradeAmount = Math.max(0, currentBalanceSol - 0.01);
+        // Calculate safe trade amount (leave 0.005 SOL for fees and rent)
+        const safeTradeAmount = Math.max(0, currentBalanceSol - 0.005);
         
         if (safeTradeAmount <= 0) {
-            throw new Error(`Insufficient balance: Need at least 0.01 SOL for fees, but only have ${currentBalanceSol} SOL`);
+            throw new Error(`Insufficient balance: Need at least 0.005 SOL for fees, but only have ${currentBalanceSol} SOL`);
         }
         
         // Use the smaller of fixed amount or safe amount
@@ -270,9 +270,12 @@ async function executeCopyTrade(tokenMint: string) {
         // Create and send transaction
         const tx = new Transaction();
         
-        // Add compute budget instructions
-        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }));
-        tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10000 }));
+        // Get dynamic priority fees from Helius
+        const priorityFees = await getHeliusPriorityFees();
+        
+        // Add compute budget instructions with Helius-optimized fees
+        tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT }));
+        tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFees.computeUnitPrice }));
         
         tx.add(...buyIx);
         
@@ -288,7 +291,9 @@ async function executeCopyTrade(tokenMint: string) {
         });
         
         console.log('✅ Copy trade transaction sent:', signature);
-        await connection.confirmTransaction(signature, 'confirmed');
+        
+        // Use Helius for faster confirmation
+        await confirmTransactionWithHelius(signature);
         console.log('🎉 Copy trade completed successfully!');
         
     } catch (error) {
@@ -311,6 +316,95 @@ async function executeCopyTrade(tokenMint: string) {
         } else {
             console.error('🔧 UNKNOWN ERROR: Please check the logs above for more details.');
         }
+    }
+}
+
+// Helius-enhanced transaction confirmation
+async function confirmTransactionWithHelius(signature: string): Promise<void> {
+    const maxAttempts = 10;
+    const startTime = Date.now();
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            // Try Helius Enhanced Transaction API first
+            const response = await fetch(`https://api.helius.xyz/v0/transactions?api-key=${HELIUS_API_KEY}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    signatures: [signature]
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data && data.length > 0 && data[0].confirmationStatus) {
+                    const elapsed = Date.now() - startTime;
+                    console.log(`🎯 Helius confirmation (${elapsed}ms): ${data[0].confirmationStatus}`);
+                    return;
+                }
+            }
+            
+            // Fallback to standard RPC confirmation
+            const status = await connection.getSignatureStatus(signature);
+            if (status && status.value && status.value.confirmationStatus) {
+                const elapsed = Date.now() - startTime;
+                console.log(`🎯 Standard confirmation (${elapsed}ms): ${status.value.confirmationStatus}`);
+                return;
+            }
+            
+            console.log(`⏳ Confirmation attempt ${attempt}/${maxAttempts}...`);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+        } catch (error) {
+            console.log(`⚠️ Confirmation error (attempt ${attempt}):`, error);
+            if (attempt === maxAttempts) {
+                throw new Error(`Transaction not confirmed after ${maxAttempts} attempts`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+    }
+    
+    throw new Error(`Transaction not confirmed after ${maxAttempts} attempts`);
+}
+
+// Get optimized priority fees from Helius
+async function getHeliusPriorityFees(): Promise<{ computeUnitPrice: number }> {
+    try {
+        // Use Helius RPC method for recent prioritization fees
+        const recentFees = await connection.getRecentPrioritizationFees({
+            lockedWritableAccounts: [botWallet.publicKey]
+        });
+
+        if (!recentFees || recentFees.length === 0) {
+            console.log('⚠️ No recent prioritization fees found, using default');
+            return { computeUnitPrice: COMPUTE_UNIT_PRICE };
+        }
+
+        // Calculate median fee per CU
+        const feesPerCu = recentFees.map(fee => {
+            const cuLimit = (fee as any).computeUnitLimit || COMPUTE_UNIT_LIMIT;
+            return fee.prioritizationFee / cuLimit;
+        });
+        feesPerCu.sort((a, b) => a - b);
+        
+        const medianFeePerCu = feesPerCu[Math.floor(feesPerCu.length / 2)];
+        
+        // Add 10% above median for competitive pricing
+        const competitiveMultiplier = 1.1;
+        const dynamicComputeUnitPrice = Math.max(
+            Math.floor(medianFeePerCu * competitiveMultiplier),
+            COMPUTE_UNIT_PRICE // Never go below minimum
+        );
+
+        console.log(`📊 Helius Priority Fee: Median=${medianFeePerCu.toFixed(0)}, CU Price=${dynamicComputeUnitPrice}, Multiplier=${competitiveMultiplier.toFixed(2)}x`);
+        
+        return { computeUnitPrice: dynamicComputeUnitPrice };
+        
+    } catch (error) {
+        console.log('⚠️ Failed to get Helius priority fees, using default:', error);
+        return { computeUnitPrice: COMPUTE_UNIT_PRICE };
     }
 }
 

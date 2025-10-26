@@ -10,9 +10,10 @@ import {
 import fetch from 'node-fetch';
 import { 
     WALLET_PRIVATE_KEY,
-    TRANSACTION_CONFIG,
     NETWORK,
-    RPC_URL
+    RPC_URL,
+    COMPUTE_UNIT_LIMIT,
+    COMPUTE_UNIT_PRICE
 } from './config';
 import bs58 from 'bs58';
 import * as fs from 'fs';
@@ -62,7 +63,7 @@ export class WalletManager {
 
     async checkMinimumBalance(): Promise<boolean> {
         const balance = await this.getBalance();
-        return balance >= TRANSACTION_CONFIG.minSolBalance;
+        return balance >= 0.0001; // Minimum balance check
     }
 
     /**
@@ -90,7 +91,7 @@ export class WalletManager {
 
                 if (!hasComputeBudgetIx) {
                     const computeUnitInstruction = ComputeBudgetProgram.setComputeUnitLimit({
-                        units: TRANSACTION_CONFIG.computeUnitLimit
+                        units: COMPUTE_UNIT_LIMIT   
                     });
                     const computeUnitPriceInstruction = ComputeBudgetProgram.setComputeUnitPrice({
                         microLamports: dynamicFees.computeUnitPrice
@@ -106,7 +107,7 @@ export class WalletManager {
                 transaction.sign([this.wallet]);
             }
 
-            console.log(`🚀 Building transaction - CU limit: ${TRANSACTION_CONFIG.computeUnitLimit}, CU price: ${dynamicFees.computeUnitPrice}`);
+            console.log(`🚀 Building transaction - CU limit: ${COMPUTE_UNIT_LIMIT}, CU price: ${dynamicFees.computeUnitPrice}`);
 
             // Step 4: Optional simulation (skip in ultra-low-latency mode)
             if (!options?.skipSimulation) {
@@ -135,7 +136,7 @@ export class WalletManager {
                 transaction.serialize(),
                 {
                     skipPreflight: options?.skipPreflight ?? true, // Default to true for speed
-                    maxRetries: TRANSACTION_CONFIG.maxRetries,
+                    maxRetries: 2,
                     preflightCommitment: options?.commitment || 'processed'
                 }
             );
@@ -209,11 +210,11 @@ export class WalletManager {
     async calculateOptimalTradeAmount(tokenAddress: string): Promise<number> {
         try {
             const balance = await this.getBalance();
-            const maxAmount = TRANSACTION_CONFIG.maxSolPerTrade;
+            const maxAmount = 0.1; // Max trade amount
             
             // Calculate optimal amount based on balance and max trade size
             const optimalAmount = Math.min(
-                balance - TRANSACTION_CONFIG.minSolBalance,
+                balance - 0.0001, // Min balance buffer
                 maxAmount
             );
             
@@ -350,8 +351,8 @@ export class WalletManager {
             if (!recentFees || recentFees.length === 0) {
                 console.log('⚠️ No recent prioritization fees found, using defaults');
                 return {
-                    computeUnitPrice: TRANSACTION_CONFIG.computeUnitPrice,
-                    priorityFee: TRANSACTION_CONFIG.priorityFee
+                    computeUnitPrice: COMPUTE_UNIT_PRICE,
+                    priorityFee: 10000
                 };
             }
 
@@ -368,12 +369,12 @@ export class WalletManager {
             const competitiveMultiplier = 1.1;
             const dynamicComputeUnitPrice = Math.max(
                 Math.floor(medianFeePerCu * competitiveMultiplier),
-                TRANSACTION_CONFIG.computeUnitPrice // Never go below minimum
+                COMPUTE_UNIT_PRICE // Never go below minimum
             );
             
             const dynamicPriorityFee = Math.max(
-                Math.floor(dynamicComputeUnitPrice * TRANSACTION_CONFIG.computeUnitLimit),
-                TRANSACTION_CONFIG.priorityFee // Never go below minimum
+                Math.floor(dynamicComputeUnitPrice * COMPUTE_UNIT_LIMIT),
+                10000 // Never go below minimum priority fee
             );
 
             console.log(`📊 Dynamic Priority Fee: Median=${medianFeePerCu.toFixed(0)}, CU Price=${dynamicComputeUnitPrice}, Priority Fee=${dynamicPriorityFee}, Multiplier=${competitiveMultiplier.toFixed(2)}x`);
@@ -385,8 +386,8 @@ export class WalletManager {
         } catch (error) {
             console.log('⚠️ Failed to get dynamic priority fee, using defaults:', error);
             return {
-                computeUnitPrice: TRANSACTION_CONFIG.computeUnitPrice,
-                priorityFee: TRANSACTION_CONFIG.priorityFee
+                computeUnitPrice: COMPUTE_UNIT_PRICE,
+                priorityFee: 10000
             };
         }
     }
