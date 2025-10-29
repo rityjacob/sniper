@@ -67,6 +67,27 @@ export class WalletManager {
     }
 
     /**
+     * Enhanced balance check for trading with proper fee estimation
+     */
+    async checkTradingBalance(requiredAmount: number): Promise<{
+        hasEnoughBalance: boolean;
+        currentBalance: number;
+        requiredBalance: number;
+        deficit?: number;
+    }> {
+        const currentBalance = await this.getBalance();
+        const feeBuffer = 0.01; // 0.01 SOL buffer for transaction fees
+        const requiredBalance = requiredAmount + feeBuffer;
+        
+        return {
+            hasEnoughBalance: currentBalance >= requiredBalance,
+            currentBalance,
+            requiredBalance,
+            deficit: currentBalance < requiredBalance ? requiredBalance - currentBalance : undefined
+        };
+    }
+
+    /**
      * Ultra-fast transaction execution pipeline with Helius optimizations
      */
     async signAndSendTransaction(transaction: Transaction | VersionedTransaction, options?: {

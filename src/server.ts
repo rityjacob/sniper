@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
-import { Connection, PublicKey, Keypair, Transaction, ComputeBudgetProgram } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, Transaction, ComputeBudgetProgram, SendTransactionError } from '@solana/web3.js';
 import { 
     Token
 } from '@solana/spl-token';
@@ -235,11 +235,19 @@ async function executeCopyTrade(tokenMint: string) {
         const currentBalance = await connection.getBalance(botWallet.publicKey);
         const currentBalanceSol = currentBalance / 1e9;
         
-        // Calculate safe trade amount (leave 0.005 SOL for fees and rent)
-        const safeTradeAmount = Math.max(0, currentBalanceSol - 0.005);
+        // Enhanced balance validation - need more SOL for transaction fees
+        const minimumRequiredBalance = 0.01; // Increased minimum to account for priority fees
+        const feeBuffer = 0.005; // Buffer for transaction fees
+        
+        if (currentBalanceSol < minimumRequiredBalance) {
+            throw new Error(`INSUFFICIENT BALANCE: Need at least ${minimumRequiredBalance} SOL for trading, but only have ${currentBalanceSol.toFixed(6)} SOL. Please fund the bot wallet.`);
+        }
+        
+        // Calculate safe trade amount (leave buffer for fees and rent)
+        const safeTradeAmount = Math.max(0, currentBalanceSol - feeBuffer);
         
         if (safeTradeAmount <= 0) {
-            throw new Error(`Insufficient balance: Need at least 0.005 SOL for fees, but only have ${currentBalanceSol} SOL`);
+            throw new Error(`Insufficient balance: Need at least ${feeBuffer} SOL for fees, but only have ${currentBalanceSol.toFixed(6)} SOL`);
         }
         
         // Use the smaller of fixed amount or safe amount
@@ -299,22 +307,53 @@ async function executeCopyTrade(tokenMint: string) {
     } catch (error) {
         console.error('❌ Copy trade failed:', error);
         
-        // Log transaction logs if available
-        const logs = (error as any)?.logs;
-        if (logs && Array.isArray(logs)) {
-            console.error('🔎 Program logs:\n' + logs.join('\n'));
-        }
-        
-        // Check for specific error types
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        
-        if (errorMessage.includes('insufficient lamports') || errorMessage.includes('Insufficient balance')) {
-            console.error('💸 INSUFFICIENT BALANCE: The bot wallet needs more SOL to execute trades.');
-            console.error('   Please fund the bot wallet with more SOL and try again.');
-        } else if (errorMessage.includes('Trade amount too small')) {
-            console.error('⚠️ TRADE TOO SMALL: The available balance is too low for a meaningful trade.');
+        // Handle SendTransactionError specifically
+        if (error instanceof SendTransactionError) {
+            console.error('📝 Transaction signature:', (error as any).signature || 'N/A');
+            console.error('📝 Transaction message:', error.message);
+            
+            // Log transaction logs if available - use getLogs() method
+            try {
+                const logs = await error.getLogs(connection);
+                if (logs && Array.isArray(logs)) {
+                    console.error('🔎 Program logs:');
+                    logs.forEach((log: string) => console.error(log));
+                }
+            } catch (logError) {
+                console.error('⚠️ Could not retrieve transaction logs');
+            }
+            
+            // Check for insufficient funds error
+            const errorMessage = error.message || '';
+            if (errorMessage.includes('insufficient lamports') || errorMessage.includes('Transfer: insufficient lamports')) {
+                console.error('💸 INSUFFICIENT BALANCE: The bot wallet needs more SOL to execute trades.');
+                console.error('   Please fund the bot wallet with more SOL and try again.');
+                
+                // Extract balance info from logs if available
+                try {
+                    const logs = await error.getLogs(connection);
+                    const insufficientLog = logs?.find((log: string) => 
+                        log.includes('insufficient lamports') || log.includes('Transfer: insufficient lamports')
+                    );
+                    if (insufficientLog) {
+                        console.error('   Details:', insufficientLog);
+                    }
+                } catch (logError) {
+                    // Ignore log retrieval errors
+                }
+            }
         } else {
-            console.error('🔧 UNKNOWN ERROR: Please check the logs above for more details.');
+            // Handle other types of errors
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            
+            if (errorMessage.includes('insufficient lamports') || errorMessage.includes('Insufficient balance')) {
+                console.error('💸 INSUFFICIENT BALANCE: The bot wallet needs more SOL to execute trades.');
+                console.error('   Please fund the bot wallet with more SOL and try again.');
+            } else if (errorMessage.includes('Trade amount too small')) {
+                console.error('⚠️ TRADE TOO SMALL: The available balance is too low for a meaningful trade.');
+            } else {
+                console.error('🔧 UNKNOWN ERROR: Please check the logs above for more details.');
+            }
         }
     }
 }
