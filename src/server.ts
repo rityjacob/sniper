@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import bodyParser from 'body-parser';
-import { Connection, PublicKey, Keypair, Transaction, ComputeBudgetProgram, SendTransactionError } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, Transaction, ComputeBudgetProgram, SendTransactionError, SystemProgram } from '@solana/web3.js';
 import { 
     Token
 } from '@solana/spl-token';
@@ -243,58 +243,165 @@ async function executeCopyTrade(tokenMint: string) {
             throw new Error(`INSUFFICIENT BALANCE: Need at least ${minimumRequiredBalance} SOL for trading, but only have ${currentBalanceSol.toFixed(6)} SOL. Please fund the bot wallet.`);
         }
         
-        // Calculate safe trade amount (leave buffer for fees and rent)
-        const safeTradeAmount = Math.max(0, currentBalanceSol - feeBuffer);
+        // ALWAYS use exactly FIXED_SOL_PER_TRADE, regardless of target's purchase amount
+        // This ensures we buy a fixed amount (0.02 SOL) every time
+        const actualTradeAmount = FIXED_SOL_PER_TRADE;
         
-        if (safeTradeAmount <= 0) {
-            throw new Error(`Insufficient balance: Need at least ${feeBuffer} SOL for fees, but only have ${currentBalanceSol.toFixed(6)} SOL`);
+        console.log(`💰 Fixed trade amount: ${actualTradeAmount.toFixed(6)} SOL (always ${FIXED_SOL_PER_TRADE} SOL regardless of target's purchase)`);
+        
+        // Validate we have enough balance for the fixed trade amount + fees
+        // Need: trade amount + transaction fees (~0.001 SOL) + small buffer
+        const minimumRequiredForTrade = actualTradeAmount + 0.005; // 0.005 SOL buffer for fees
+        
+        if (currentBalanceSol < minimumRequiredForTrade) {
+            throw new Error(
+                `INSUFFICIENT BALANCE: Need at least ${minimumRequiredForTrade.toFixed(6)} SOL ` +
+                `(${actualTradeAmount.toFixed(6)} SOL for trade + 0.005 SOL for fees), ` +
+                `but only have ${currentBalanceSol.toFixed(6)} SOL. ` +
+                `Please fund the bot wallet with more SOL.`
+            );
         }
         
-        // Use the smaller of fixed amount or safe amount
-        const actualTradeAmount = Math.min(FIXED_SOL_PER_TRADE, safeTradeAmount);
+        // Convert SOL to lamports - use exact fixed amount
+        const amountLamports = Math.floor(actualTradeAmount * 1e9);
+        const amountBN = new BN(amountLamports);
         
-        // Check if trade amount is too small
-        if (actualTradeAmount < 0.001) {
-            throw new Error(`Trade amount too small: ${actualTradeAmount.toFixed(6)} SOL (minimum 0.001 SOL)`);
-        }
+        console.log(`💵 Exact trade amount: ${actualTradeAmount.toFixed(6)} SOL (${amountLamports} lamports)`);
         
-        console.log(`💰 Balance: ${currentBalanceSol.toFixed(6)} SOL, Safe trade amount: ${safeTradeAmount.toFixed(6)} SOL, Actual trade: ${actualTradeAmount.toFixed(6)} SOL`);
-        
-        // Convert SOL to lamports
-        const amountLamports = new BN(Math.floor(actualTradeAmount * 1e9));
         const tokenMintPubkey = new PublicKey(tokenMint);
         
-        // Ensure token account exists
-        await ensureTokenAccountExists(tokenMintPubkey);
+        // Ensure token account exists BEFORE building swap
+        // This prevents the SDK from trying to create it and requiring extra SOL
+        const tokenAccount = await ensureTokenAccountExists(tokenMintPubkey);
+        
+        // Check balance after token account creation (creation costs ~0.002 SOL)
+        const balanceAfterAccountCreation = await connection.getBalance(botWallet.publicKey);
+        const balanceAfterAccountCreationSol = balanceAfterAccountCreation / 1e9;
+        
+        console.log(`💰 Balance after token account creation: ${balanceAfterAccountCreationSol.toFixed(6)} SOL`);
+        
+        // Verify we still have enough for the trade after account creation
+        if (balanceAfterAccountCreationSol < minimumRequiredForTrade) {
+            throw new Error(
+                `INSUFFICIENT BALANCE: After creating token account, balance is ${balanceAfterAccountCreationSol.toFixed(6)} SOL, ` +
+                `but need ${minimumRequiredForTrade.toFixed(6)} SOL for trade (${actualTradeAmount.toFixed(6)} SOL) and fees. ` +
+                `Please fund the bot wallet with more SOL.`
+            );
+        }
         
         // Build swap using Pump.fun SDK
         const onlineSdk = new OnlinePumpAmmSdk(connection);
         const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
+        
+        // Get swap state - this fetches the current pool state
+        // Pass the token account so SDK knows it already exists
         const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
         
-        // Build buy instructions
-        const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_BPS);
+        console.log(`📊 Swap state retrieved for pool: ${poolKey.toString()}`);
+        console.log(`📊 Token account: ${tokenAccount.toString()}`);
         
-        // Create and send transaction
+        // Validate the amount before passing to SDK
+        if (amountBN.toNumber() !== amountLamports) {
+            throw new Error(`Amount conversion error: Expected ${amountLamports} lamports, got ${amountBN.toNumber()}`);
+        }
+        
+        console.log(`🔧 Calling Pump.fun SDK with:`);
+        console.log(`   Amount: ${actualTradeAmount.toFixed(6)} SOL (${amountBN.toString()} lamports)`);
+        console.log(`   Slippage: ${SLIPPAGE_BPS} bps (${(SLIPPAGE_BPS / 100).toFixed(2)}%)`);
+        console.log(`   Token account: ${tokenAccount.toString()} (already exists)`);
+        
+        // CRITICAL: Verify amount is exactly our fixed amount (0.02 SOL)
+        // This ensures we NEVER use the target's purchase amount
+        const expectedLamports = Math.floor(FIXED_SOL_PER_TRADE * 1e9);
+        if (amountLamports !== expectedLamports) {
+            throw new Error(
+                `FATAL: Amount mismatch! Expected ${expectedLamports} lamports (${FIXED_SOL_PER_TRADE} SOL), ` +
+                `but got ${amountLamports} lamports. This should never happen.`
+            );
+        }
+        
+        // Verify BN amount matches
+        if (!amountBN.eq(new BN(expectedLamports))) {
+            throw new Error(
+                `FATAL: BN amount mismatch! Expected ${expectedLamports}, got ${amountBN.toString()}`
+            );
+        }
+        
+        console.log(`🎯 VERIFIED: Using EXACTLY ${FIXED_SOL_PER_TRADE} SOL (${expectedLamports} lamports) for trade`);
+        console.log(`   ✅ This is OUR fixed amount, completely independent of target's purchase`);
+        console.log(`   ✅ Target's purchase amount is IGNORED - we always use ${FIXED_SOL_PER_TRADE} SOL`);
+        
+        // Build buy instructions using the offline SDK with the online state
+        // CRITICAL: The second parameter (amountBN) MUST be our fixed amount (0.02 SOL)
+        // The SDK should ONLY use this amount, not any other value
+        console.log(`🔧 Calling buyQuoteInput with amount: ${amountBN.toString()} lamports (${FIXED_SOL_PER_TRADE} SOL)`);
+        const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountBN, SLIPPAGE_BPS);
+        
+        console.log(`📋 Generated ${buyIx.length} instructions from buyQuoteInput`);
+        
+        // Log instruction details for debugging
+        buyIx.forEach((ix, idx) => {
+            const programId = ix.programId.toString();
+            const accountCount = ix.keys.length;
+            console.log(`   Instruction ${idx}: Program ${programId}, ${accountCount} accounts`);
+            
+            // Note: We're passing exactly FIXED_SOL_PER_TRADE (0.02 SOL) to the SDK
+            // If the SDK creates instructions requesting more SOL, that would be a bug in the SDK
+            // The instructions are created by the SDK based on the amountBN parameter we pass
+        });
+        
+        // Final verification
+        console.log(`✅ Instructions created`);
+        console.log(`   Amount passed to SDK: ${FIXED_SOL_PER_TRADE.toFixed(6)} SOL (${amountBN.toString()} lamports)`);
+        console.log(`   Expected total SOL usage: ${FIXED_SOL_PER_TRADE.toFixed(6)} SOL (trade) + ~0.001 SOL (fees) = ~${(FIXED_SOL_PER_TRADE + 0.001).toFixed(6)} SOL`);
+        console.log(`   Wallet balance: ${balanceAfterAccountCreationSol.toFixed(6)} SOL`);
+        
+        if (balanceAfterAccountCreationSol < FIXED_SOL_PER_TRADE + 0.01) {
+            throw new Error(
+                `INSUFFICIENT BALANCE: Need ${(FIXED_SOL_PER_TRADE + 0.01).toFixed(6)} SOL ` +
+                `(${FIXED_SOL_PER_TRADE.toFixed(6)} SOL for trade + 0.01 SOL for fees), ` +
+                `but only have ${balanceAfterAccountCreationSol.toFixed(6)} SOL`
+            );
+        }
+        
+        // Create transaction
         const tx = new Transaction();
         
         // Get dynamic priority fees from Helius
         const priorityFees = await getHeliusPriorityFees();
         
-        // Add compute budget instructions with Helius-optimized fees
+        // Add compute budget instructions FIRST (required for priority fees)
         tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT }));
         tx.add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFees.computeUnitPrice }));
         
+        // Add buy instructions from SDK
+        // These instructions should only transfer exactly amountBN lamports (0.02 SOL)
         tx.add(...buyIx);
         
-        const { blockhash } = await connection.getLatestBlockhash();
+        // Log transaction summary before signing
+        console.log(`📦 Transaction summary:`);
+        console.log(`   Total instructions: ${tx.instructions.length}`);
+        console.log(`   Trade amount: ${actualTradeAmount.toFixed(6)} SOL`);
+        console.log(`   Wallet balance: ${balanceAfterAccountCreationSol.toFixed(6)} SOL`);
+        console.log(`   Available for trade: ${(balanceAfterAccountCreationSol - 0.001).toFixed(6)} SOL (after fees)`);
+        
+        // Get fresh blockhash and set fee payer
+        const { blockhash } = await connection.getLatestBlockhash('finalized');
         tx.recentBlockhash = blockhash;
         tx.feePayer = botWallet.publicKey;
+        
+        // Sign transaction
         tx.sign(botWallet);
         
         console.log('📤 Sending copy trade transaction...');
+        console.log(`   Balance: ${balanceAfterAccountCreationSol.toFixed(6)} SOL`);
+        console.log(`   Trade amount: ${actualTradeAmount.toFixed(6)} SOL`);
+        console.log(`   Instructions: ${tx.instructions.length}`);
+        
+        // Send with preflight to catch errors early
         const signature = await connection.sendRawTransaction(tx.serialize(), {
-            skipPreflight: false,
+            skipPreflight: false, // Enable preflight to catch errors
+            maxRetries: 3,
             preflightCommitment: 'confirmed'
         });
         
@@ -326,21 +433,47 @@ async function executeCopyTrade(tokenMint: string) {
             // Check for insufficient funds error
             const errorMessage = error.message || '';
             if (errorMessage.includes('insufficient lamports') || errorMessage.includes('Transfer: insufficient lamports')) {
-                console.error('💸 INSUFFICIENT BALANCE: The bot wallet needs more SOL to execute trades.');
-                console.error('   Please fund the bot wallet with more SOL and try again.');
+                console.error('💸 INSUFFICIENT BALANCE ERROR DETECTED');
+                console.error(`   Intended trade amount: ${FIXED_SOL_PER_TRADE.toFixed(6)} SOL (${FIXED_SOL_PER_TRADE} SOL)`);
                 
                 // Extract balance info from logs if available
                 try {
                     const logs = await error.getLogs(connection);
-                    const insufficientLog = logs?.find((log: string) => 
-                        log.includes('insufficient lamports') || log.includes('Transfer: insufficient lamports')
-                    );
-                    if (insufficientLog) {
-                        console.error('   Details:', insufficientLog);
+                    if (logs && Array.isArray(logs)) {
+                        const insufficientLog = logs.find((log: string) => 
+                            log.includes('insufficient lamports') || log.includes('Transfer: insufficient lamports')
+                        );
+                        if (insufficientLog) {
+                            console.error('   Error details:', insufficientLog);
+                            
+                            // Try to extract the required amount from the error
+                            const needMatch = insufficientLog.match(/need (\d+)/);
+                            if (needMatch) {
+                                const neededLamports = parseInt(needMatch[1]);
+                                const neededSol = neededLamports / 1e9;
+                                const intendedLamports = Math.floor(FIXED_SOL_PER_TRADE * 1e9);
+                                
+                                console.error(`   Wallet balance: ${(await connection.getBalance(botWallet.publicKey)) / 1e9} SOL`);
+                                console.error(`   Required by SDK: ${neededSol.toFixed(6)} SOL (${neededLamports} lamports)`);
+                                console.error(`   Intended amount: ${FIXED_SOL_PER_TRADE.toFixed(6)} SOL (${intendedLamports} lamports)`);
+                                
+                                if (neededSol > FIXED_SOL_PER_TRADE * 2) {
+                                    console.error(`   ⚠️  PROBLEM: SDK is requesting ${neededSol.toFixed(6)} SOL but we only want to trade ${FIXED_SOL_PER_TRADE.toFixed(6)} SOL!`);
+                                    console.error(`   This is ${(neededSol / FIXED_SOL_PER_TRADE).toFixed(1)}x more than intended.`);
+                                    console.error(`   Possible causes:`);
+                                    console.error(`   1. Pump.fun SDK bug or incorrect usage`);
+                                    console.error(`   2. SDK trying to create accounts that require rent`);
+                                    console.error(`   3. Issue with token account setup`);
+                                    console.error(`   Please check the Pump.fun SDK documentation or try updating the SDK version.`);
+                                }
+                            }
+                        }
                     }
                 } catch (logError) {
-                    // Ignore log retrieval errors
+                    console.error('   Could not parse error details');
                 }
+                
+                console.error('   SOLUTION: Ensure your wallet has enough SOL for the trade amount + fees.');
             }
         } else {
             // Handle other types of errors
