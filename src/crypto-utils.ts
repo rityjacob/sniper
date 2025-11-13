@@ -58,14 +58,13 @@ export async function findProgramAddress(
   let address: Uint8Array;
 
   while (nonce !== 0) {
-    const seedBytes = Buffer.concat([
-      ...seeds.map(s => Buffer.from(s)),
-      Buffer.from([nonce])
-    ]);
+    const seedBuffers = seeds.map(s => Buffer.from(s));
+    const nonceBuffer = Buffer.from([nonce]);
+    const seedBytes = Buffer.concat([...seedBuffers, nonceBuffer] as any);
 
     const hash = createHash('sha256')
-      .update(seedBytes)
-      .update(Buffer.from(programId))
+      .update(seedBytes as any)
+      .update(new Uint8Array(programId))
       .digest();
 
     address = new Uint8Array(hash);

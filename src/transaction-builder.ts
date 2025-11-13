@@ -57,12 +57,12 @@ export function createComputeUnitLimitInstruction(units: number): Instruction {
   data.writeUInt32LE(2, 0); // Instruction discriminator
   const unitsBuffer = Buffer.allocUnsafe(4);
   unitsBuffer.writeUInt32LE(units, 0);
-  const fullData = Buffer.concat([data, unitsBuffer]);
+  const fullData = Buffer.concat([data, unitsBuffer] as any);
 
   return {
     programId: COMPUTE_BUDGET_PROGRAM_ID,
     keys: [],
-    data: new Uint8Array(fullData)
+    data: new Uint8Array(fullData.buffer, fullData.byteOffset, fullData.byteLength)
   };
 }
 
@@ -75,12 +75,12 @@ export function createComputeUnitPriceInstruction(microLamports: number): Instru
   data.writeUInt32LE(3, 0); // Instruction discriminator
   const priceBuffer = Buffer.allocUnsafe(8);
   priceBuffer.writeBigUInt64LE(BigInt(microLamports), 0);
-  const fullData = Buffer.concat([data, priceBuffer]);
+  const fullData = Buffer.concat([data, priceBuffer] as any);
 
   return {
     programId: COMPUTE_BUDGET_PROGRAM_ID,
     keys: [],
-    data: new Uint8Array(fullData)
+    data: new Uint8Array(fullData.buffer, fullData.byteOffset, fullData.byteLength)
   };
 }
 
@@ -104,7 +104,10 @@ export function signTransaction(tx: Transaction, keypair: Keypair): void {
   }
 
   // Serialize message
-  const message = serializeMessage(tx);
+  const messageBuffer = serializeMessage(tx);
+  
+  // Convert Buffer to Uint8Array for signing
+  const message = new Uint8Array(messageBuffer);
   
   // Sign message
   const signature = signMessage(message, keypair.secretKey);
@@ -150,7 +153,7 @@ export function serializeTransaction(tx: Transaction): string {
   }
 
   // Combine signatures + message
-  const transactionBuffer = Buffer.concat([signatureBuffer, message]);
+  const transactionBuffer = Buffer.concat([signatureBuffer, message] as any);
 
   // Return base64 encoded
   return transactionBuffer.toString('base64');
@@ -257,10 +260,17 @@ function serializeMessage(tx: Transaction): Buffer {
   header.writeUInt8(numReadonlyUnsignedAccounts, 2);
 
   // Account addresses (32 bytes each)
-  const accountAddresses = Buffer.concat(orderedAccounts.map(pk => Buffer.from(pk)));
+  const accountAddressBuffers = orderedAccounts.map(pk => {
+    if (pk instanceof Buffer) {
+      return pk;
+    }
+    // Convert Uint8Array to Buffer
+    return Buffer.from(pk.buffer, pk.byteOffset, pk.byteLength);
+  });
+  const accountAddresses = Buffer.concat(accountAddressBuffers as any);
 
   // Recent blockhash (32 bytes)
-  const blockhashBuffer = bs58.decode(tx.recentBlockhash);
+  const blockhashBuffer = Buffer.from(bs58.decode(tx.recentBlockhash));
 
   // Instructions
   const instructionCount = Buffer.allocUnsafe(1);
@@ -289,8 +299,10 @@ function serializeMessage(tx: Transaction): Buffer {
     const dataLength = Buffer.allocUnsafe(2);
     dataLength.writeUInt16LE(ix.data.length, 0);
 
-    // Instruction data
-    const dataBuffer = Buffer.from(ix.data);
+    // Instruction data - convert Uint8Array to Buffer
+    const dataBuffer = ix.data instanceof Buffer 
+      ? ix.data 
+      : Buffer.from(ix.data.buffer, ix.data.byteOffset, ix.data.byteLength);
 
     // Combine instruction parts
     instructionBuffers.push(
@@ -299,19 +311,20 @@ function serializeMessage(tx: Transaction): Buffer {
         accountIndicesBuffer,
         dataLength,
         dataBuffer
-      ])
+      ] as any)
     );
   }
 
-  const instructionsBuffer = Buffer.concat(instructionBuffers);
+  const instructionsBuffer = Buffer.concat(instructionBuffers as any);
 
   // Combine all parts
-  return Buffer.concat([
+  const allParts: Buffer[] = [
     header,
     accountAddresses,
     blockhashBuffer,
     instructionCount,
     instructionsBuffer
-  ]);
+  ];
+  return Buffer.concat(allParts as any);
 }
 
