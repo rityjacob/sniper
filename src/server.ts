@@ -8,6 +8,7 @@ import bodyParser from 'body-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import * as dotenv from 'dotenv';
+import fetch from 'node-fetch';
 
 // Load environment variables
 dotenv.config();
@@ -381,6 +382,30 @@ app.use((error: any, req: Request, res: Response, next: any) => {
   });
 });
 
+// Self-ping function to keep server awake
+function startSelfPing() {
+  const pingInterval = 14 * 60 * 1000; // 14 minutes
+  const serverUrl = process.env.RENDER_EXTERNAL_URL || process.env.SELF_URL || `http://localhost:${PORT}`;
+  
+  const pingServer = async () => {
+    try {
+      const response = await fetch(`${serverUrl}/health`);
+      if (response.ok) {
+        console.log(`✅ Self-ping successful at ${new Date().toISOString()}`);
+      } else {
+        console.log(`⚠️  Self-ping failed with status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error(`❌ Self-ping error:`, error);
+    }
+  };
+
+  setInterval(pingServer, pingInterval);
+  pingServer(); // Initial ping
+  
+  console.log(`🔄 Self-ping started - pinging every ${pingInterval / 1000 / 60} minutes`);
+}
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Copy Trading Bot running on port ${PORT}`);
@@ -389,6 +414,9 @@ app.listen(PORT, () => {
   console.log(`🎯 Target wallet: ${TARGET_WALLET_ADDRESS}`);
   console.log(`🤖 Bot wallet: ${botWalletPubkey}`);
   console.log(`💰 Fixed buy amount: ${FIXED_SOL_PER_TRADE} SOL`);
+  
+  // Start self-ping to keep server awake
+  startSelfPing();
 });
 
 export default app;
