@@ -9,6 +9,7 @@ import {
 } from '@pump-fun/pump-swap-sdk';
 import bs58 from 'bs58';
 import * as dotenv from 'dotenv';
+import fetch from 'node-fetch';
 
 // Load environment variables
 dotenv.config();
@@ -26,7 +27,7 @@ const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.c
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS;
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
 const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.08 SOL
-const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25'); // Default 5%
+const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25'); // Default 25%
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
@@ -35,7 +36,7 @@ if (!TARGET_WALLET_ADDRESS) {
 
 if (!BOT_WALLET_SECRET) {
     console.error('❌ BOT_WALLET_SECRET environment variable is required');
-  process.exit(1);
+    process.exit(1);
 }
 
 // 2. Initialize Clients
@@ -156,7 +157,7 @@ async function processWebhookAsync(webhookData: any) {
         console.log(`   Bot will buy: ${FIXED_BUY_AMOUNT} SOL (fixed amount)`);
         
         // 6. Execute Buy via Pump.fun with fixed amount
-        await executePumpFunBuy(buyInfo.tokenMint, FIXED_BUY_AMOUNT);
+        await executePumpFunBuy(buyInfo.tokenMint, FIXED_BUY_AMOUNT, 0);
         
     } catch (error) {
         console.error('❌ Error processing webhook:', error);
@@ -250,8 +251,8 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
     
     // Look for SOL transfers where target wallet is sending SOL
     const targetSendingSol = nativeTransfers.find(transfer => 
-            transfer.fromUserAccount === targetWallet
-        );
+        transfer.fromUserAccount === targetWallet
+    );
     
     if (targetReceivingTokens && targetSendingSol) {
         // This looks like a buy: target sent SOL and received tokens
@@ -272,7 +273,10 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
 }
 
 // 6. Execute Buy via Pump.fun
-async function executePumpFunBuy(tokenMint: string, amountSol: number) {
+async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCount: number = 0) {
+    const MAX_RETRIES = 10;
+    const INITIAL_DELAY = 500; // Start with 500ms delay
+    
     try {
         console.log(`🚀 Executing Pump.fun buy: ${amountSol} SOL for token ${tokenMint}`);
         console.log('📊 Token mint:', tokenMint);
@@ -286,38 +290,79 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         // Build SwapSolanaState using the online SDK helper
         const onlineSdk = new OnlinePumpAmmSdk(connection);
         const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
+        
+        // Wait a bit before fetching pool state to ensure it's ready
+        if (retryCount > 0) {
+            const delay = Math.min(INITIAL_DELAY * Math.pow(2, retryCount - 1), 5000); // Exponential backoff, max 5s
+            console.log(`⏳ Waiting ${delay}ms before retry attempt ${retryCount}...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
         const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
 
         // Build buy instructions for a quote-in (SOL) swap
         const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_PERCENT);
 
         // Create and send transaction
+        const { blockhash } = await connection.getLatestBlockhash('confirmed');
         const tx = new Transaction();
         tx.add(...buyIx);
-        const { blockhash } = await connection.getLatestBlockhash();
         tx.recentBlockhash = blockhash;
         tx.feePayer = botWallet.publicKey;
         tx.sign(botWallet);
 
         console.log('📤 Sending buy transaction...');
-        const signature = await connection.sendRawTransaction(tx.serialize(), {
-            skipPreflight: false,
-            preflightCommitment: 'confirmed'
-        });
+        
+        // Try with skipPreflight first to avoid simulation issues
+        let signature: string;
+        try {
+            signature = await connection.sendRawTransaction(tx.serialize(), {
+                skipPreflight: true, // Skip preflight to avoid simulation errors
+                maxRetries: 3
+            });
+        } catch (sendError: any) {
+            // If skipPreflight fails, try with preflight but skip simulation errors
+            console.log('⚠️  First attempt failed, trying with preflight...');
+            signature = await connection.sendRawTransaction(tx.serialize(), {
+                skipPreflight: false,
+                preflightCommitment: 'confirmed',
+                maxRetries: 3
+            });
+        }
+        
         console.log('✅ Buy transaction sent:', signature);
         await connection.confirmTransaction(signature, 'confirmed');
         console.log('🎉 Buy transaction confirmed!');
         
-    } catch (error) {
+    } catch (error: any) {
         console.error('❌ Pump.fun buy failed:', error);
         
-        // Retry logic for common errors
+        // Check for ConstraintMut error (0x7d0) or pool-related errors
         const errorMessage = error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes('pool') || errorMessage.includes('not ready')) {
-            console.log('🔄 Pool not ready, retrying in 2 seconds...');
+        const errorLogs = (error && typeof error === 'object' && (error.transactionLogs || error.logs)) || [];
+        const errorLogsArray = Array.isArray(errorLogs) ? errorLogs : [];
+        
+        const hasConstraintMutError = errorMessage.includes('0x7d0') || 
+                                      errorMessage.includes('ConstraintMut') ||
+                                      errorMessage.includes('custom program error: 0x7d0') ||
+                                      errorLogsArray.some((log: any) => {
+                                          const logStr = String(log);
+                                          return logStr.includes('0x7d0') || logStr.includes('ConstraintMut');
+                                      });
+        
+        const isPoolError = errorMessage.includes('pool') || 
+                           errorMessage.includes('not ready') ||
+                           hasConstraintMutError;
+        
+        if (isPoolError && retryCount < MAX_RETRIES) {
+            console.log(`🔄 Pool not ready (attempt ${retryCount + 1}/${MAX_RETRIES}), retrying...`);
+            // Retry with exponential backoff
             setTimeout(() => {
-                executePumpFunBuy(tokenMint, amountSol);
-            }, 2000);
+                executePumpFunBuy(tokenMint, amountSol, retryCount + 1);
+            }, INITIAL_DELAY * Math.pow(2, retryCount));
+        } else if (retryCount >= MAX_RETRIES) {
+            console.error(`❌ Max retries (${MAX_RETRIES}) reached. Giving up.`);
+            throw new Error(`Failed after ${MAX_RETRIES} retries: ${errorMessage}`);
         } else {
             throw error;
         }
@@ -326,9 +371,9 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
 
 // Health check endpoint
 app.get('/health', (req: Request, res: Response) => {
-        res.status(200).json({
+    res.status(200).json({
         status: 'healthy',
-            timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         botWallet: botWallet.publicKey.toString(),
         targetWallet: TARGET_WALLET_ADDRESS,
         fixedBuyAmount: FIXED_BUY_AMOUNT,
@@ -383,7 +428,7 @@ app.listen(PORT, () => {
     console.log(`💰 Fixed buy amount: ${FIXED_BUY_AMOUNT} SOL`);
     
     // Start self-ping to keep server awake
-startSelfPing();
+    startSelfPing();
 });
 
 export default app;

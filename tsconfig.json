@@ -12,8 +12,8 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "declaration": true,
-    "sourceMap": true
-    ,"types": ["node"]
+    "sourceMap": true,
+    "types": ["node"]
   },
   "include": [
     "src/**/*"
