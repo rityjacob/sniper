@@ -275,7 +275,8 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
 // 6. Execute Buy via Pump.fun
 async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCount: number = 0) {
     const MAX_RETRIES = 10;
-    const INITIAL_DELAY = 500; // Start with 500ms delay
+    const RETRY_DELAY = 100; // Minimal delay for retries only (100ms)
+    let sentSignature: string | null = null;
     
     try {
         console.log(`🚀 Executing Pump.fun buy: ${amountSol} SOL for token ${tokenMint}`);
@@ -291,11 +292,10 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCoun
         const onlineSdk = new OnlinePumpAmmSdk(connection);
         const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
         
-        // Wait a bit before fetching pool state to ensure it's ready
+        // Only add minimal delay on retries (not first attempt)
         if (retryCount > 0) {
-            const delay = Math.min(INITIAL_DELAY * Math.pow(2, retryCount - 1), 5000); // Exponential backoff, max 5s
-            console.log(`⏳ Waiting ${delay}ms before retry attempt ${retryCount}...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
+            console.log(`🔄 Retry attempt ${retryCount}...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         }
         
         const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
@@ -304,7 +304,7 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCoun
         const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_PERCENT);
 
         // Create and send transaction
-        const { blockhash } = await connection.getLatestBlockhash('confirmed');
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
         const tx = new Transaction();
         tx.add(...buyIx);
         tx.recentBlockhash = blockhash;
@@ -313,53 +313,67 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCoun
 
         console.log('📤 Sending buy transaction...');
         
-        // Try with skipPreflight first to avoid simulation issues
-        let signature: string;
         try {
-            signature = await connection.sendRawTransaction(tx.serialize(), {
-                skipPreflight: true, // Skip preflight to avoid simulation errors
+            sentSignature = await connection.sendRawTransaction(tx.serialize(), {
+                skipPreflight: true,
                 maxRetries: 3
             });
         } catch (sendError: any) {
-            // If skipPreflight fails, try with preflight but skip simulation errors
             console.log('⚠️  First attempt failed, trying with preflight...');
-            signature = await connection.sendRawTransaction(tx.serialize(), {
+            sentSignature = await connection.sendRawTransaction(tx.serialize(), {
                 skipPreflight: false,
                 preflightCommitment: 'confirmed',
                 maxRetries: 3
             });
         }
         
-        console.log('✅ Buy transaction sent:', signature);
-        await connection.confirmTransaction(signature, 'confirmed');
+        console.log('✅ Buy transaction sent:', sentSignature);
+        // Use blockhash-based confirmation (waits until blockhash expires ~60–90s) instead of 30s legacy timeout
+        await connection.confirmTransaction(
+            { signature: sentSignature, blockhash, lastValidBlockHeight },
+            'confirmed'
+        );
         console.log('🎉 Buy transaction confirmed!');
         
     } catch (error: any) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const sig = sentSignature ?? (error?.signature as string | undefined);
+        const isConfirmationTimeout =
+            errorMessage.includes('TransactionExpiredTimeoutError') ||
+            errorMessage.includes('not confirmed in ') ||
+            errorMessage.includes('It is unknown if it succeeded or failed');
+
+        if (sig && isConfirmationTimeout) {
+            console.warn(
+                '⚠️ Transaction was sent but confirmation timed out. It may have succeeded. Verify on Solana Explorer:',
+                `https://solana.fm/tx/${sig}`
+            );
+            return;
+        }
+
         console.error('❌ Pump.fun buy failed:', error);
         
-        // Check for ConstraintMut error (0x7d0) or pool-related errors
-        const errorMessage = error instanceof Error ? error.message : String(error);
         const errorLogs = (error && typeof error === 'object' && (error.transactionLogs || error.logs)) || [];
         const errorLogsArray = Array.isArray(errorLogs) ? errorLogs : [];
-        
-        const hasConstraintMutError = errorMessage.includes('0x7d0') || 
-                                      errorMessage.includes('ConstraintMut') ||
-                                      errorMessage.includes('custom program error: 0x7d0') ||
-                                      errorLogsArray.some((log: any) => {
-                                          const logStr = String(log);
-                                          return logStr.includes('0x7d0') || logStr.includes('ConstraintMut');
-                                      });
-        
-        const isPoolError = errorMessage.includes('pool') || 
-                           errorMessage.includes('not ready') ||
-                           hasConstraintMutError;
+        const hasConstraintMutError =
+            errorMessage.includes('0x7d0') ||
+            errorMessage.includes('ConstraintMut') ||
+            errorMessage.includes('custom program error: 0x7d0') ||
+            errorLogsArray.some((log: any) => {
+                const logStr = String(log);
+                return logStr.includes('0x7d0') || logStr.includes('ConstraintMut');
+            });
+        const isPoolError =
+            errorMessage.includes('pool') ||
+            errorMessage.includes('not ready') ||
+            hasConstraintMutError;
         
         if (isPoolError && retryCount < MAX_RETRIES) {
-            console.log(`🔄 Pool not ready (attempt ${retryCount + 1}/${MAX_RETRIES}), retrying...`);
-            // Retry with exponential backoff
+            console.log(`🔄 Pool not ready (attempt ${retryCount + 1}/${MAX_RETRIES}), retrying immediately...`);
+            // Retry immediately with minimal delay
             setTimeout(() => {
                 executePumpFunBuy(tokenMint, amountSol, retryCount + 1);
-            }, INITIAL_DELAY * Math.pow(2, retryCount));
+            }, RETRY_DELAY);
         } else if (retryCount >= MAX_RETRIES) {
             console.error(`❌ Max retries (${MAX_RETRIES}) reached. Giving up.`);
             throw new Error(`Failed after ${MAX_RETRIES} retries: ${errorMessage}`);
