@@ -9,12 +9,17 @@ import {
 } from '@pump-fun/pump-swap-sdk';
 import bs58 from 'bs58';
 import * as dotenv from 'dotenv';
-import fetch from 'node-fetch';
 
 // Load environment variables
 dotenv.config();
 
-// 1. Setup / Imports
+// Constants
+const PUMP_FUN_PROGRAM_ID = 'troY36YiPGqMyAYCNbEqYCdN2tb91Zf7bHcQt7KUi61';
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 200;
+
+// Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -26,8 +31,8 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS;
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
-const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08'); // Default 0.08 SOL
-const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25'); // Default 25%
+const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.08');
+const SLIPPAGE_PERCENT = parseFloat(process.env.SLIPPAGE_PERCENT || '25');
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
@@ -39,16 +44,20 @@ if (!BOT_WALLET_SECRET) {
     process.exit(1);
 }
 
-// 2. Initialize Clients
-const connection = new Connection(RPC_URL);
+// Initialize Solana connection and wallet
+const connection = new Connection(RPC_URL, 'confirmed');
 const botWallet = Keypair.fromSecretKey(bs58.decode(BOT_WALLET_SECRET));
 const pumpAmmSdk = new PumpAmmSdk();
 
-console.log('🚀 Bot wallet initialized:', botWallet.publicKey.toString());
+console.log('🚀 Bot initialized');
+console.log('🤖 Bot wallet:', botWallet.publicKey.toString());
 console.log('🎯 Target wallet:', TARGET_WALLET_ADDRESS);
 console.log('💰 Fixed buy amount:', FIXED_BUY_AMOUNT, 'SOL');
+console.log('📡 RPC URL:', RPC_URL);
 
-// 3. Create Webhook Endpoint
+/**
+ * Main webhook endpoint
+ */
 app.post('/webhook', async (req: Request, res: Response) => {
     console.log('\n🔔 === WEBHOOK RECEIVED ===');
     console.log('📅 Timestamp:', new Date().toISOString());
@@ -66,205 +75,328 @@ app.post('/webhook', async (req: Request, res: Response) => {
     });
 });
 
-// 4. Decode Transaction & 5. Detect Buy
+/**
+ * Process webhook data asynchronously
+ */
 async function processWebhookAsync(webhookData: any) {
     try {
-        console.log('🔍 Processing webhook data...');
-        
-        // DEBUG: Log the complete webhook structure
-        console.log('📋 COMPLETE WEBHOOK DATA:');
-        console.log(JSON.stringify(webhookData, null, 2));
-        
-        // Handle array of transactions (Helius sends array with one transaction)
+        // Handle array of transactions
         const transaction = Array.isArray(webhookData) ? webhookData[0] : webhookData;
         
-        // Extract transaction instructions and accounts
-        const instructions = transaction.instructions || [];
-        const accounts = transaction.accountData || [];
-        const tokenTransfers = transaction.tokenTransfers || [];
-        const nativeTransfers = transaction.nativeTransfers || [];
-        
-        console.log(`📊 Found ${instructions.length} instructions, ${accounts.length} accounts`);
-        console.log(`💰 Token transfers: ${tokenTransfers.length}, Native transfers: ${nativeTransfers.length}`);
-        
-        // DEBUG: Check for alternative data structures
-        console.log('🔍 DEBUGGING WEBHOOK STRUCTURE:');
-        console.log('  - Has tokenTransfers:', !!transaction.tokenTransfers);
-        console.log('  - Has nativeTransfers:', !!transaction.nativeTransfers);
-        console.log('  - Has instructions:', !!transaction.instructions);
-        console.log('  - Has accountData:', !!transaction.accountData);
-        console.log('  - Has events:', !!transaction.events);
-        console.log('  - Has logs:', !!transaction.logs);
-        console.log('  - Has innerInstructions:', !!transaction.innerInstructions);
-        console.log('  - Has preBalances:', !!transaction.preBalances);
-        console.log('  - Has postBalances:', !!transaction.postBalances);
-        console.log('  - Has preTokenBalances:', !!transaction.preTokenBalances);
-        console.log('  - Has postTokenBalances:', !!transaction.postTokenBalances);
-        
-        // Try alternative data structures if standard ones are empty
-        let finalTokenTransfers = tokenTransfers;
-        let finalNativeTransfers = nativeTransfers;
-        
-        if (tokenTransfers.length === 0 && nativeTransfers.length === 0) {
-            console.log('🔍 Trying alternative data structures...');
-            
-            // Try parsing from events
-            if (transaction.events) {
-                console.log('  - Found events, parsing...');
-                // Parse events for token transfers
-            }
-            
-            // Try parsing from logs
-            if (transaction.logs) {
-                console.log('  - Found logs, parsing...');
-                // Parse logs for transfer information
-            }
-            
-            // Try parsing from pre/post token balances
-            if (transaction.preTokenBalances && transaction.postTokenBalances) {
-                console.log('  - Found token balances, parsing...');
-                finalTokenTransfers = parseTokenBalances(transaction.preTokenBalances, transaction.postTokenBalances);
-            }
-            
-            // Try parsing from pre/post balances for SOL transfers
-            if (transaction.preBalances && transaction.postBalances) {
-                console.log('  - Found SOL balances, parsing...');
-                finalNativeTransfers = parseSolBalances(transaction.preBalances, transaction.postBalances, transaction.accountData);
-            }
-        }
-        
-        // Check if target wallet is involved in this transaction
-        const isTargetInvolved = checkTargetWalletInvolvement(finalTokenTransfers, finalNativeTransfers);
-        
-        if (!isTargetInvolved) {
-            console.log('❌ Target wallet not involved in this transaction');
+        if (!transaction) {
+            console.log('⚠️  No transaction data found');
             return;
         }
-        
+
+        // Step 1: Check if target wallet is involved
+        if (!isTargetWalletInvolved(transaction)) {
+            console.log('❌ Target wallet not involved - skipping');
+            return;
+        }
+
         console.log('✅ Target wallet involved - analyzing transaction...');
+
+        // Step 2: Check if this is a Pump.fun transaction
+        if (!isPumpFunTransaction(transaction)) {
+            console.log('❌ Not a Pump.fun transaction - skipping');
+            return;
+        }
+
+        console.log('✅ Pump.fun transaction detected');
+
+        // Debug: Log transaction details
+        const tokenTransfers = transaction.tokenTransfers || [];
+        const nativeTransfers = transaction.nativeTransfers || [];
+        console.log(`   Token transfers: ${tokenTransfers.length}`);
+        console.log(`   Native transfers: ${nativeTransfers.length}`);
         
-        // Detect if this is a buy transaction
-        const buyInfo = detectBuyTransaction(finalTokenTransfers, finalNativeTransfers);
+        if (tokenTransfers.length > 0) {
+            console.log('   Token transfer details:');
+            tokenTransfers.forEach((transfer: any, idx: number) => {
+                console.log(`     [${idx}] ${transfer.fromUserAccount?.substring(0, 8)}... -> ${transfer.toUserAccount?.substring(0, 8)}... | Mint: ${transfer.mint?.substring(0, 8)}... | Amount: ${transfer.tokenAmount}`);
+            });
+        }
+
+        // Step 3: Detect buy transaction and extract token mint
+        const buyInfo = detectBuyTransaction(transaction);
         
         if (!buyInfo.isBuy) {
             console.log('❌ Not a buy transaction - skipping');
             return;
         }
-        
+
+        // Step 4: Validate token mint (must not be SOL/WSOL)
+        if (!buyInfo.tokenMint || buyInfo.tokenMint === WSOL_MINT) {
+            console.log('❌ Invalid token mint detected - cannot be SOL/WSOL');
+            console.log(`   Detected mint: ${buyInfo.tokenMint}`);
+            return;
+        }
+
+        // Validate token mint format (should be a valid Solana public key)
+        try {
+            new PublicKey(buyInfo.tokenMint);
+        } catch (error) {
+            console.log(`❌ Invalid token mint format: ${buyInfo.tokenMint}`);
+            return;
+        }
+
         console.log('🟢 BUY TRANSACTION DETECTED!');
         console.log(`   Token: ${buyInfo.tokenMint}`);
         console.log(`   Target spent: ${buyInfo.solAmount} SOL`);
-        console.log(`   Bot will buy: ${FIXED_BUY_AMOUNT} SOL (fixed amount)`);
-        
-        // 6. Execute Buy via Pump.fun with fixed amount
-        await executePumpFunBuy(buyInfo.tokenMint, FIXED_BUY_AMOUNT, 0);
-        
-    } catch (error) {
+        console.log(`   Bot will buy: ${FIXED_BUY_AMOUNT} SOL`);
+
+        // Step 5: Execute buy
+        await executePumpFunBuy(buyInfo.tokenMint, FIXED_BUY_AMOUNT);
+
+    } catch (error: any) {
         console.error('❌ Error processing webhook:', error);
+        if (error.message) {
+            console.error('   Error message:', error.message);
+        }
+        if (error.stack) {
+            console.error('   Stack:', error.stack);
+        }
     }
 }
 
-// Parse token transfers from pre/post token balances
-function parseTokenBalances(preTokenBalances: any[], postTokenBalances: any[]): any[] {
-    const transfers: any[] = [];
-    
-    // Find accounts that gained tokens
-    postTokenBalances.forEach((postBalance: any) => {
-        const preBalance = preTokenBalances.find((pre: any) => 
-            pre.accountIndex === postBalance.accountIndex && pre.mint === postBalance.mint
-        );
-        
-        if (preBalance) {
-            const preAmount = parseFloat(preBalance.uiTokenAmount?.amount || '0');
-            const postAmount = parseFloat(postBalance.uiTokenAmount?.amount || '0');
-            
-            if (postAmount > preAmount) {
-                transfers.push({
-                    fromUserAccount: 'unknown',
-                    toUserAccount: postBalance.owner,
-                    fromTokenAccount: 'unknown',
-                    toTokenAccount: postBalance.owner,
-                    mint: postBalance.mint,
-                    tokenAmount: (postAmount - preAmount).toString()
-                });
-            }
-        }
-    });
-    
-    return transfers;
-}
-
-// Parse SOL transfers from pre/post balances
-function parseSolBalances(preBalances: number[], postBalances: number[], accountData: any[]): any[] {
-    const transfers: any[] = [];
-    
-    preBalances.forEach((preBalance: number, index: number) => {
-        const postBalance = postBalances[index];
-        const account = accountData?.[index];
-        
-        if (account && preBalance !== postBalance) {
-            const amount = postBalance - preBalance;
-            if (amount !== 0) {
-                transfers.push({
-                    fromUserAccount: amount < 0 ? account : 'unknown',
-                    toUserAccount: amount > 0 ? account : 'unknown',
-                    amount: Math.abs(amount)
-                });
-            }
-        }
-    });
-    
-    return transfers;
-}
-
-// Check if target wallet is involved in the transaction
-function checkTargetWalletInvolvement(tokenTransfers: any[], nativeTransfers: any[]): boolean {
+/**
+ * Check if target wallet is involved in the transaction
+ */
+function isTargetWalletInvolved(transaction: any): boolean {
     const targetWallet = TARGET_WALLET_ADDRESS;
     
+    // Check account data
+    const accountData = transaction.accountData || [];
+    const hasTargetInAccounts = accountData.some((account: any) => 
+        account.account === targetWallet
+    );
+
+    if (hasTargetInAccounts) {
+        return true;
+    }
+
     // Check token transfers
-    const targetInTokenTransfers = tokenTransfers.some(transfer => 
-        transfer.fromUserAccount === targetWallet || 
+    const tokenTransfers = transaction.tokenTransfers || [];
+    const hasTargetInTokenTransfers = tokenTransfers.some((transfer: any) =>
+        transfer.fromUserAccount === targetWallet ||
         transfer.toUserAccount === targetWallet
     );
-    
-    // Check native transfers (SOL)
-    const targetInNativeTransfers = nativeTransfers.some(transfer => 
-        transfer.fromUserAccount === targetWallet || 
+
+    // Check native transfers
+    const nativeTransfers = transaction.nativeTransfers || [];
+    const hasTargetInNativeTransfers = nativeTransfers.some((transfer: any) =>
+        transfer.fromUserAccount === targetWallet ||
         transfer.toUserAccount === targetWallet
     );
-    
-    return targetInTokenTransfers || targetInNativeTransfers;
+
+    return hasTargetInTokenTransfers || hasTargetInNativeTransfers;
 }
 
-// Detect if this is a buy transaction and extract relevant info
-function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
+/**
+ * Check if transaction involves Pump.fun program
+ */
+function isPumpFunTransaction(transaction: any): boolean {
+    // Check transaction source
+    if (transaction.source === 'PUMP_AMM') {
+        return true;
+    }
+
+    // Check instructions for Pump.fun program ID
+    const instructions = transaction.instructions || [];
+    const innerInstructions = transaction.innerInstructions || [];
+    const allInstructions = [...instructions, ...innerInstructions.flat()];
+
+    const hasPumpFunProgram = allInstructions.some((ix: any) => {
+        const programId = ix.programId || ix.programIdIndex;
+        if (typeof programId === 'string') {
+            return programId === PUMP_FUN_PROGRAM_ID;
+        }
+        // If programIdIndex, check accountData
+        if (typeof programId === 'number' && transaction.accountData) {
+            const account = transaction.accountData[programId];
+            return account?.account === PUMP_FUN_PROGRAM_ID;
+        }
+        return false;
+    });
+
+    if (hasPumpFunProgram) {
+        return true;
+    }
+
+    // Check account data for Pump.fun program ID
+    const accountData = transaction.accountData || [];
+    const hasPumpFunAccount = accountData.some((account: any) =>
+        account.account === PUMP_FUN_PROGRAM_ID
+    );
+
+    return hasPumpFunAccount;
+}
+
+/**
+ * Detect buy transaction and extract token mint
+ */
+function detectBuyTransaction(transaction: any): {
     isBuy: boolean;
     tokenMint: string;
     solAmount: number;
 } {
     const targetWallet = TARGET_WALLET_ADDRESS;
+
+    // Get token transfers
+    const tokenTransfers = transaction.tokenTransfers || [];
     
-    // Look for token transfers where target wallet is receiving tokens
-    const targetReceivingTokens = tokenTransfers.find(transfer => 
-        transfer.toUserAccount === targetWallet
+    // Get native transfers (SOL)
+    const nativeTransfers = transaction.nativeTransfers || [];
+
+    // Find token transfers where target wallet RECEIVED tokens (excluding WSOL)
+    const targetReceivingTokens = tokenTransfers.filter((transfer: any) =>
+        transfer.toUserAccount === targetWallet &&
+        transfer.mint &&
+        transfer.mint !== WSOL_MINT
     );
-    
-    // Look for SOL transfers where target wallet is sending SOL
-    const targetSendingSol = nativeTransfers.find(transfer => 
-        transfer.fromUserAccount === targetWallet
+
+    // Find WSOL transfers where target wallet SENT WSOL (Pump.fun uses WSOL, not native SOL)
+    const targetSendingWSOL = tokenTransfers.filter((transfer: any) =>
+        transfer.fromUserAccount === targetWallet &&
+        transfer.mint === WSOL_MINT &&
+        parseFloat(transfer.tokenAmount || '0') > 0
     );
-    
-    if (targetReceivingTokens && targetSendingSol) {
-        // This looks like a buy: target sent SOL and received tokens
-        const solAmount = targetSendingSol.amount / 1e9; // Convert lamports to SOL
-        
-        return {
-            isBuy: true,
-            tokenMint: targetReceivingTokens.mint,
-            solAmount: solAmount
-        };
+
+    // Also check native SOL transfers (some transactions might use native SOL)
+    const targetSendingSol = nativeTransfers.filter((transfer: any) =>
+        transfer.fromUserAccount === targetWallet &&
+        transfer.amount > 0
+    );
+
+    // For a Pump.fun buy: target should send WSOL/SOL and receive tokens
+    if (targetReceivingTokens.length > 0 && (targetSendingWSOL.length > 0 || targetSendingSol.length > 0)) {
+        // Get the first valid token mint (not WSOL)
+        const validTokenTransfer = targetReceivingTokens.find((transfer: any) =>
+            transfer.mint && transfer.mint !== WSOL_MINT
+        );
+
+        if (validTokenTransfer) {
+            // Calculate total SOL/WSOL sent
+            let totalSolSent = 0;
+            
+            // Sum WSOL sent (convert from token amount)
+            if (targetSendingWSOL.length > 0) {
+                totalSolSent = targetSendingWSOL.reduce((sum: number, transfer: any) => {
+                    const amount = parseFloat(transfer.tokenAmount || '0');
+                    // WSOL uses 9 decimals like SOL
+                    return sum + (amount / 1e9);
+                }, 0);
+            }
+            
+            // Add native SOL sent
+            if (targetSendingSol.length > 0) {
+                totalSolSent += targetSendingSol.reduce((sum: number, transfer: any) => 
+                    sum + transfer.amount, 0
+                ) / 1e9; // Convert lamports to SOL
+            }
+
+            console.log(`   Detected buy: ${validTokenTransfer.mint}`);
+            console.log(`   SOL/WSOL spent: ${totalSolSent} SOL`);
+
+            return {
+                isBuy: true,
+                tokenMint: validTokenTransfer.mint,
+                solAmount: totalSolSent
+            };
+        }
     }
+
+    // Alternative: Check pre/post token balances (more reliable for some webhook formats)
+    const preTokenBalances = transaction.preTokenBalances || [];
+    const postTokenBalances = transaction.postTokenBalances || [];
     
+    if (preTokenBalances.length > 0 && postTokenBalances.length > 0) {
+        // Find accounts where target wallet gained tokens
+        const targetAccountIndices = new Set<number>();
+        const accountData = transaction.accountData || [];
+        
+        accountData.forEach((account: any, index: number) => {
+            if (account.account === targetWallet) {
+                targetAccountIndices.add(index);
+            }
+        });
+
+        // Check token balance changes
+        for (const postBalance of postTokenBalances) {
+            if (targetAccountIndices.has(postBalance.accountIndex)) {
+                const preBalance = preTokenBalances.find((pre: any) =>
+                    pre.accountIndex === postBalance.accountIndex &&
+                    pre.mint === postBalance.mint
+                );
+
+                if (preBalance) {
+                    const preAmount = parseFloat(preBalance.uiTokenAmount?.amount || '0');
+                    const postAmount = parseFloat(postBalance.uiTokenAmount?.amount || '0');
+                    
+                    // Target gained tokens and it's not WSOL
+                    if (postAmount > preAmount && postBalance.mint !== WSOL_MINT) {
+                        // Calculate SOL/WSOL spent
+                        let totalSolSent = 0;
+                        
+                        // Check WSOL transfers
+                        if (targetSendingWSOL.length > 0) {
+                            totalSolSent = targetSendingWSOL.reduce((sum: number, transfer: any) => {
+                                const amount = parseFloat(transfer.tokenAmount || '0');
+                                return sum + (amount / 1e9);
+                            }, 0);
+                        }
+                        
+                        // Check native SOL transfers
+                        if (targetSendingSol.length > 0) {
+                            totalSolSent += targetSendingSol.reduce((sum: number, transfer: any) => 
+                                sum + transfer.amount, 0) / 1e9;
+                        }
+
+                        console.log(`   Detected buy from balances: ${postBalance.mint}`);
+                        console.log(`   SOL/WSOL spent: ${totalSolSent} SOL`);
+
+                        return {
+                            isBuy: true,
+                            tokenMint: postBalance.mint,
+                            solAmount: totalSolSent
+                        };
+                    }
+                } else {
+                    // New token balance (didn't exist before)
+                    if (postBalance.mint !== WSOL_MINT) {
+                        const postAmount = parseFloat(postBalance.uiTokenAmount?.uiAmountString || postBalance.uiTokenAmount?.amount || '0');
+                        
+                        if (postAmount > 0) {
+                            // Calculate SOL/WSOL spent
+                            let totalSolSent = 0;
+                            
+                            if (targetSendingWSOL.length > 0) {
+                                totalSolSent = targetSendingWSOL.reduce((sum: number, transfer: any) => {
+                                    const amount = parseFloat(transfer.tokenAmount || '0');
+                                    return sum + (amount / 1e9);
+                                }, 0);
+                            }
+                            
+                            if (targetSendingSol.length > 0) {
+                                totalSolSent += targetSendingSol.reduce((sum: number, transfer: any) => 
+                                    sum + transfer.amount, 0) / 1e9;
+                            }
+
+                            console.log(`   Detected new token buy: ${postBalance.mint}`);
+                            console.log(`   SOL/WSOL spent: ${totalSolSent} SOL`);
+
+                            return {
+                                isBuy: true,
+                                tokenMint: postBalance.mint,
+                                solAmount: totalSolSent
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     return {
         isBuy: false,
         tokenMint: '',
@@ -272,38 +404,66 @@ function detectBuyTransaction(tokenTransfers: any[], nativeTransfers: any[]): {
     };
 }
 
-// 6. Execute Buy via Pump.fun
-async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCount: number = 0) {
-    const MAX_RETRIES = 10;
-    const RETRY_DELAY = 100; // Minimal delay for retries only (100ms)
-    let sentSignature: string | null = null;
-    
+/**
+ * Execute Pump.fun buy transaction
+ */
+async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCount: number = 0): Promise<void> {
     try {
-        console.log(`🚀 Executing Pump.fun buy: ${amountSol} SOL for token ${tokenMint}`);
-        console.log('📊 Token mint:', tokenMint);
-        console.log('💰 Amount SOL:', amountSol);
-        console.log('🤖 Bot wallet:', botWallet.publicKey.toString());
+        console.log(`🚀 Executing Pump.fun buy`);
+        console.log(`   Token mint: ${tokenMint}`);
+        console.log(`   Amount: ${amountSol} SOL`);
+        console.log(`   Bot wallet: ${botWallet.publicKey.toString()}`);
 
-        // Convert SOL to lamports (1 SOL = 1e9 lamports)
+        // Validate token mint
+        if (!tokenMint || tokenMint === WSOL_MINT) {
+            throw new Error('Invalid token mint - cannot trade SOL on Pump.fun');
+        }
+
+        // Convert SOL to lamports
         const amountLamports = new BN(Math.floor(amountSol * 1e9));
         const tokenMintPubkey = new PublicKey(tokenMint);
 
-        // Build SwapSolanaState using the online SDK helper
+        // Initialize online SDK
         const onlineSdk = new OnlinePumpAmmSdk(connection);
         const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
-        
-        // Only add minimal delay on retries (not first attempt)
-        if (retryCount > 0) {
-            console.log(`🔄 Retry attempt ${retryCount}...`);
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-        }
-        
-        const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
 
-        // Build buy instructions for a quote-in (SOL) swap
+        console.log(`   Pool key: ${poolKey.toString()}`);
+
+        // Add delay on retries
+        if (retryCount > 0) {
+            console.log(`🔄 Retry attempt ${retryCount}/${MAX_RETRIES}...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * retryCount));
+        }
+
+        // Get swap state
+        let swapState;
+        try {
+            swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
+        } catch (error: any) {
+            const errorMsg = error?.message || String(error);
+            
+            // Check if pool doesn't exist
+            if (errorMsg.includes('Pool account not found') ||
+                errorMsg.includes('AccountNotFound') ||
+                errorMsg.includes('not found')) {
+                console.error(`❌ Pool account not found for token ${tokenMint}`);
+                console.error(`   This token may not be a Pump.fun token or the pool hasn't been created yet`);
+                return; // Don't retry - pool doesn't exist
+            }
+            
+            // Retry on other errors
+            if (retryCount < MAX_RETRIES) {
+                console.log(`⚠️  Error getting swap state, retrying...`);
+                return executePumpFunBuy(tokenMint, amountSol, retryCount + 1);
+            }
+            
+            throw error;
+        }
+
+        // Build buy instruction
         const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_PERCENT);
 
-        // Create and send transaction
+        // Create transaction
         const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
         const tx = new Transaction();
         tx.add(...buyIx);
@@ -311,79 +471,71 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCoun
         tx.feePayer = botWallet.publicKey;
         tx.sign(botWallet);
 
-        console.log('📤 Sending buy transaction...');
-        
+        console.log('📤 Sending transaction...');
+
+        // Send transaction
+        let signature: string;
         try {
-            sentSignature = await connection.sendRawTransaction(tx.serialize(), {
+            signature = await connection.sendRawTransaction(tx.serialize(), {
                 skipPreflight: true,
                 maxRetries: 3
             });
         } catch (sendError: any) {
-            console.log('⚠️  First attempt failed, trying with preflight...');
-            sentSignature = await connection.sendRawTransaction(tx.serialize(), {
+            console.log('⚠️  First send attempt failed, trying with preflight...');
+            signature = await connection.sendRawTransaction(tx.serialize(), {
                 skipPreflight: false,
                 preflightCommitment: 'confirmed',
                 maxRetries: 3
             });
         }
-        
-        console.log('✅ Buy transaction sent:', sentSignature);
-        // Use blockhash-based confirmation (waits until blockhash expires ~60–90s) instead of 30s legacy timeout
-        await connection.confirmTransaction(
-            { signature: sentSignature, blockhash, lastValidBlockHeight },
-            'confirmed'
-        );
-        console.log('🎉 Buy transaction confirmed!');
-        
-    } catch (error: any) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const sig = sentSignature ?? (error?.signature as string | undefined);
-        const isConfirmationTimeout =
-            errorMessage.includes('TransactionExpiredTimeoutError') ||
-            errorMessage.includes('not confirmed in ') ||
-            errorMessage.includes('It is unknown if it succeeded or failed');
 
-        if (sig && isConfirmationTimeout) {
-            console.warn(
-                '⚠️ Transaction was sent but confirmation timed out. It may have succeeded. Verify on Solana Explorer:',
-                `https://solana.fm/tx/${sig}`
+        console.log(`✅ Transaction sent: ${signature}`);
+        console.log(`   Explorer: https://solscan.io/tx/${signature}`);
+
+        // Confirm transaction
+        try {
+            await connection.confirmTransaction(
+                { signature, blockhash, lastValidBlockHeight },
+                'confirmed'
             );
-            return;
+            console.log('🎉 Transaction confirmed!');
+        } catch (confirmError: any) {
+            const confirmMsg = confirmError?.message || String(confirmError);
+            if (confirmMsg.includes('TransactionExpiredTimeoutError') ||
+                confirmMsg.includes('not confirmed')) {
+                console.warn('⚠️  Transaction confirmation timed out, but it may have succeeded');
+                console.warn(`   Check on explorer: https://solscan.io/tx/${signature}`);
+            } else {
+                throw confirmError;
+            }
         }
 
-        console.error('❌ Pump.fun buy failed:', error);
+    } catch (error: any) {
+        const errorMsg = error?.message || String(error);
         
-        const errorLogs = (error && typeof error === 'object' && (error.transactionLogs || error.logs)) || [];
-        const errorLogsArray = Array.isArray(errorLogs) ? errorLogs : [];
-        const hasConstraintMutError =
-            errorMessage.includes('0x7d0') ||
-            errorMessage.includes('ConstraintMut') ||
-            errorMessage.includes('custom program error: 0x7d0') ||
-            errorLogsArray.some((log: any) => {
-                const logStr = String(log);
-                return logStr.includes('0x7d0') || logStr.includes('ConstraintMut');
-            });
-        const isPoolError =
-            errorMessage.includes('pool') ||
-            errorMessage.includes('not ready') ||
-            hasConstraintMutError;
-        
-        if (isPoolError && retryCount < MAX_RETRIES) {
-            console.log(`🔄 Pool not ready (attempt ${retryCount + 1}/${MAX_RETRIES}), retrying immediately...`);
-            // Retry immediately with minimal delay
-            setTimeout(() => {
-                executePumpFunBuy(tokenMint, amountSol, retryCount + 1);
-            }, RETRY_DELAY);
-        } else if (retryCount >= MAX_RETRIES) {
-            console.error(`❌ Max retries (${MAX_RETRIES}) reached. Giving up.`);
-            throw new Error(`Failed after ${MAX_RETRIES} retries: ${errorMessage}`);
-        } else {
-            throw error;
+        // Check for retryable errors
+        const isRetryable = 
+            errorMsg.includes('pool') ||
+            errorMsg.includes('not ready') ||
+            errorMsg.includes('ConstraintMut') ||
+            errorMsg.includes('0x7d0');
+
+        if (isRetryable && retryCount < MAX_RETRIES) {
+            console.log(`🔄 Retryable error detected, retrying...`);
+            return executePumpFunBuy(tokenMint, amountSol, retryCount + 1);
         }
+
+        console.error('❌ Pump.fun buy failed:', errorMsg);
+        if (error.stack) {
+            console.error('   Stack:', error.stack);
+        }
+        throw error;
     }
 }
 
-// Health check endpoint
+/**
+ * Health check endpoint
+ */
 app.get('/health', (req: Request, res: Response) => {
     res.status(200).json({
         status: 'healthy',
@@ -395,7 +547,9 @@ app.get('/health', (req: Request, res: Response) => {
     });
 });
 
-// 8. Logging & Error Handling
+/**
+ * Error handling middleware
+ */
 app.use((error: any, req: Request, res: Response, next: any) => {
     console.error('❌ Server error:', error);
     res.status(500).json({
@@ -405,46 +559,14 @@ app.use((error: any, req: Request, res: Response, next: any) => {
     });
 });
 
-// Self-ping function to keep server awake on Render
-function startSelfPing() {
-    const pingInterval = 14 * 60 * 1000; // 14 minutes in milliseconds
-    const serverUrl = process.env.RENDER_EXTERNAL_URL || `https://sniper-tup2.onrender.com`;
-    
-    const pingServer = async () => {
-        try {
-            const response = await fetch(`${serverUrl}/health`);
-            if (response.ok) {
-                console.log(`✅ Self-ping successful at ${new Date().toISOString()}`);
-            } else {
-                console.log(`⚠️  Self-ping failed with status: ${response.status}`);
-            }
-        } catch (error) {
-            console.error(`❌ Self-ping error:`, error);
-        }
-    };
-
-    // Start the ping interval
-    setInterval(pingServer, pingInterval);
-    
-    // Initial ping
-    pingServer();
-    
-    console.log(`🔄 Self-ping started - pinging every ${pingInterval / 1000 / 60} minutes`);
-}
-
-// Start server
+/**
+ * Start server
+ */
 app.listen(PORT, () => {
-    console.log(`🚀 Pump.fun Sniper Bot running on port ${PORT}`);
+    console.log(`\n🚀 Pump.fun Copy Trading Bot`);
     console.log(`📡 Webhook endpoint: POST /webhook`);
     console.log(`❤️  Health check: GET /health`);
-    console.log(`🎯 Target wallet: ${TARGET_WALLET_ADDRESS}`);
-    console.log(`🤖 Bot wallet: ${botWallet.publicKey.toString()}`);
-    console.log(`💰 Fixed buy amount: ${FIXED_BUY_AMOUNT} SOL`);
-    
-    // Start self-ping to keep server awake
-    startSelfPing();
+    console.log(`🌐 Server running on port ${PORT}\n`);
 });
 
 export default app;
-
-
