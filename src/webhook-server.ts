@@ -233,6 +233,14 @@ function isPumpFunTransaction(transaction: any): boolean {
 }
 
 /**
+ * Helper function to compare wallet addresses (case-insensitive)
+ */
+function addressesMatch(addr1: string | undefined, addr2: string | undefined): boolean {
+    if (!addr1 || !addr2) return false;
+    return addr1.toLowerCase() === addr2.toLowerCase();
+}
+
+/**
  * Detect buy transaction and extract token mint
  */
 function detectBuyTransaction(transaction: any): {
@@ -240,7 +248,7 @@ function detectBuyTransaction(transaction: any): {
     tokenMint: string;
     solAmount: number;
 } {
-    const targetWallet = TARGET_WALLET_ADDRESS;
+    const targetWallet = TARGET_WALLET_ADDRESS?.toLowerCase();
 
     // Get token transfers
     const tokenTransfers = transaction.tokenTransfers || [];
@@ -248,25 +256,89 @@ function detectBuyTransaction(transaction: any): {
     // Get native transfers (SOL)
     const nativeTransfers = transaction.nativeTransfers || [];
 
-    // Find token transfers where target wallet RECEIVED tokens (excluding WSOL)
-    const targetReceivingTokens = tokenTransfers.filter((transfer: any) =>
-        transfer.toUserAccount === targetWallet &&
-        transfer.mint &&
-        transfer.mint !== WSOL_MINT
-    );
+    console.log(`   DEBUG: Target wallet: ${targetWallet}`);
+    console.log(`   DEBUG: Checking ${tokenTransfers.length} token transfers...`);
 
-    // Find WSOL transfers where target wallet SENT WSOL (Pump.fun uses WSOL, not native SOL)
-    const targetSendingWSOL = tokenTransfers.filter((transfer: any) =>
-        transfer.fromUserAccount === targetWallet &&
-        transfer.mint === WSOL_MINT &&
-        parseFloat(transfer.tokenAmount || '0') > 0
-    );
+    // Use arrays we can modify
+    let targetReceivingTokens: any[] = [];
+    let targetSendingWSOL: any[] = [];
+
+    // First pass: try standard field names
+    tokenTransfers.forEach((transfer: any) => {
+        const toAccount = transfer.toUserAccount?.toLowerCase();
+        const fromAccount = transfer.fromUserAccount?.toLowerCase();
+        const mint = transfer.mint;
+        
+        // Check if target is receiving non-WSOL tokens
+        if (addressesMatch(toAccount, targetWallet) && mint && mint !== WSOL_MINT) {
+            console.log(`   DEBUG: Found token received: ${mint} -> ${toAccount}`);
+            targetReceivingTokens.push(transfer);
+        }
+        
+        // Check if target is sending WSOL
+        const tokenAmount = transfer.tokenAmount || transfer.amount || transfer.uiAmount || '0';
+        const amount = parseFloat(tokenAmount);
+        if (addressesMatch(fromAccount, targetWallet) &&
+            (mint === WSOL_MINT || mint?.startsWith('So11111111111111111111111111111111111111112')) &&
+            amount > 0) {
+            console.log(`   DEBUG: Found WSOL sent: ${amount} from ${fromAccount}`);
+            targetSendingWSOL.push(transfer);
+        }
+    });
 
     // Also check native SOL transfers (some transactions might use native SOL)
-    const targetSendingSol = nativeTransfers.filter((transfer: any) =>
-        transfer.fromUserAccount === targetWallet &&
-        transfer.amount > 0
-    );
+    const targetSendingSol = nativeTransfers.filter((transfer: any) => {
+        const fromAccount = transfer.fromUserAccount?.toLowerCase();
+        const matches = addressesMatch(fromAccount, targetWallet) && transfer.amount > 0;
+        
+        if (matches) {
+            console.log(`   DEBUG: Found native SOL sent: ${transfer.amount} from ${fromAccount}`);
+        }
+        
+        return matches;
+    });
+
+    console.log(`   DEBUG: Target receiving tokens: ${targetReceivingTokens.length}`);
+    console.log(`   DEBUG: Target sending WSOL: ${targetSendingWSOL.length}`);
+    console.log(`   DEBUG: Target sending native SOL: ${targetSendingSol.length}`);
+
+    // If we didn't find matches with standard field names, try alternative field names
+    if (targetReceivingTokens.length === 0 && tokenTransfers.length > 0) {
+        console.log('   DEBUG: Trying alternative field names for token transfers...');
+        tokenTransfers.forEach((transfer: any, idx: number) => {
+            const toAccount = (transfer.toUserAccount || transfer.to || transfer.toAccount || transfer.recipient || transfer.toTokenAccount)?.toLowerCase();
+            const fromAccount = (transfer.fromUserAccount || transfer.from || transfer.fromAccount || transfer.sender || transfer.fromTokenAccount)?.toLowerCase();
+            const mint = transfer.mint || transfer.tokenMint;
+            
+            console.log(`     Transfer [${idx}]:`);
+            console.log(`       From: ${fromAccount}`);
+            console.log(`       To: ${toAccount}`);
+            console.log(`       Mint: ${mint}`);
+            console.log(`       Amount: ${transfer.tokenAmount || transfer.amount || transfer.uiAmount}`);
+            
+            // Check if target is receiving non-WSOL tokens (only if we haven't found it yet)
+            if (addressesMatch(toAccount, targetWallet) && mint && mint !== WSOL_MINT) {
+                const alreadyFound = targetReceivingTokens.some(t => t === transfer);
+                if (!alreadyFound) {
+                    console.log(`       ✅ MATCH: Target receiving token ${mint}`);
+                    targetReceivingTokens.push(transfer);
+                }
+            }
+            
+            // Check if target is sending WSOL (only if we haven't found it yet)
+            if (addressesMatch(fromAccount, targetWallet) && 
+                (mint === WSOL_MINT || mint?.startsWith('So11111111111111111111111111111111111111112'))) {
+                const amount = parseFloat(transfer.tokenAmount || transfer.amount || transfer.uiAmount || '0');
+                if (amount > 0) {
+                    const alreadyFound = targetSendingWSOL.some(t => t === transfer);
+                    if (!alreadyFound) {
+                        console.log(`       ✅ MATCH: Target sending WSOL ${amount}`);
+                        targetSendingWSOL.push(transfer);
+                    }
+                }
+            }
+        });
+    }
 
     // For a Pump.fun buy: target should send WSOL/SOL and receive tokens
     if (targetReceivingTokens.length > 0 && (targetSendingWSOL.length > 0 || targetSendingSol.length > 0)) {
@@ -282,9 +354,12 @@ function detectBuyTransaction(transaction: any): {
             // Sum WSOL sent (convert from token amount)
             if (targetSendingWSOL.length > 0) {
                 totalSolSent = targetSendingWSOL.reduce((sum: number, transfer: any) => {
-                    const amount = parseFloat(transfer.tokenAmount || '0');
-                    // WSOL uses 9 decimals like SOL
-                    return sum + (amount / 1e9);
+                    // Try multiple field names for amount
+                    const tokenAmount = transfer.tokenAmount || transfer.amount || transfer.uiAmount || '0';
+                    const amount = parseFloat(tokenAmount);
+                    // WSOL uses 9 decimals like SOL, but check if already in SOL units
+                    // If amount is less than 1000, it's likely already in SOL units
+                    return sum + (amount < 1000 ? amount : amount / 1e9);
                 }, 0);
             }
             
