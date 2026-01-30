@@ -80,17 +80,44 @@ app.post('/webhook', async (req: Request, res: Response) => {
  */
 async function processWebhookAsync(webhookData: any) {
     try {
-        // Handle array of transactions
-        const transaction = Array.isArray(webhookData) ? webhookData[0] : webhookData;
+        // Handle different webhook formats
+        let transaction: any;
+        
+        // Helius enhanced webhook format
+        if (Array.isArray(webhookData)) {
+            transaction = webhookData[0];
+        } else if (webhookData.type === 'ENHANCED') {
+            // Helius enhanced webhook with type field
+            transaction = webhookData;
+        } else if (webhookData.transaction) {
+            // Nested transaction format
+            transaction = webhookData.transaction;
+        } else {
+            transaction = webhookData;
+        }
         
         if (!transaction) {
             console.log('⚠️  No transaction data found');
+            console.log('   Webhook data keys:', Object.keys(webhookData || {}));
             return;
+        }
+
+        // Log transaction signature for debugging
+        const txSignature = transaction.signature || 
+                           transaction.transaction?.signatures?.[0] || 
+                           webhookData.signature || 
+                           'unknown';
+        console.log(`📝 Transaction signature: ${txSignature}`);
+        
+        // Log webhook type if available
+        if (webhookData.type) {
+            console.log(`   Webhook type: ${webhookData.type}`);
         }
 
         // Step 1: Check if target wallet is involved
         if (!isTargetWalletInvolved(transaction)) {
             console.log('❌ Target wallet not involved - skipping');
+            console.log(`   Expected target: ${TARGET_WALLET_ADDRESS}`);
             return;
         }
 
@@ -163,33 +190,42 @@ async function processWebhookAsync(webhookData: any) {
  * Check if target wallet is involved in the transaction
  */
 function isTargetWalletInvolved(transaction: any): boolean {
-    const targetWallet = TARGET_WALLET_ADDRESS;
+    const targetWallet = TARGET_WALLET_ADDRESS?.toLowerCase();
     
-    // Check account data
+    // Check account data (case-insensitive)
     const accountData = transaction.accountData || [];
-    const hasTargetInAccounts = accountData.some((account: any) => 
-        account.account === targetWallet
-    );
+    const hasTargetInAccounts = accountData.some((account: any) => {
+        const accountAddr = (account.account || account.address)?.toLowerCase();
+        return addressesMatch(accountAddr, targetWallet);
+    });
 
     if (hasTargetInAccounts) {
+        console.log('   ✅ Target found in account data');
         return true;
     }
 
-    // Check token transfers
+    // Check token transfers (case-insensitive)
     const tokenTransfers = transaction.tokenTransfers || [];
-    const hasTargetInTokenTransfers = tokenTransfers.some((transfer: any) =>
-        transfer.fromUserAccount === targetWallet ||
-        transfer.toUserAccount === targetWallet
-    );
+    const hasTargetInTokenTransfers = tokenTransfers.some((transfer: any) => {
+        const fromAccount = (transfer.fromUserAccount || transfer.from)?.toLowerCase();
+        const toAccount = (transfer.toUserAccount || transfer.to)?.toLowerCase();
+        return addressesMatch(fromAccount, targetWallet) || addressesMatch(toAccount, targetWallet);
+    });
 
-    // Check native transfers
+    // Check native transfers (case-insensitive)
     const nativeTransfers = transaction.nativeTransfers || [];
-    const hasTargetInNativeTransfers = nativeTransfers.some((transfer: any) =>
-        transfer.fromUserAccount === targetWallet ||
-        transfer.toUserAccount === targetWallet
-    );
+    const hasTargetInNativeTransfers = nativeTransfers.some((transfer: any) => {
+        const fromAccount = (transfer.fromUserAccount || transfer.from)?.toLowerCase();
+        const toAccount = (transfer.toUserAccount || transfer.to)?.toLowerCase();
+        return addressesMatch(fromAccount, targetWallet) || addressesMatch(toAccount, targetWallet);
+    });
 
-    return hasTargetInTokenTransfers || hasTargetInNativeTransfers;
+    if (hasTargetInTokenTransfers || hasTargetInNativeTransfers) {
+        console.log('   ✅ Target found in transfers');
+        return true;
+    }
+
+    return false;
 }
 
 /**
@@ -538,48 +574,84 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number, retryCoun
         // Build buy instruction
         const buyIx = await pumpAmmSdk.buyQuoteInput(swapState, amountLamports, SLIPPAGE_PERCENT);
 
-        // Create transaction
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+        // Create transaction (without blockhash yet)
         const tx = new Transaction();
         tx.add(...buyIx);
-        tx.recentBlockhash = blockhash;
         tx.feePayer = botWallet.publicKey;
+
+        console.log('📤 Getting fresh blockhash and sending transaction...');
+
+        // Get FRESH blockhash RIGHT before sending to avoid expiration
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('processed');
+        tx.recentBlockhash = blockhash;
         tx.sign(botWallet);
 
-        console.log('📤 Sending transaction...');
-
-        // Send transaction
+        // Send transaction immediately with optimized settings
         let signature: string;
         try {
+            // Use processed commitment for faster confirmation, but skip preflight for speed
             signature = await connection.sendRawTransaction(tx.serialize(), {
                 skipPreflight: true,
-                maxRetries: 3
+                maxRetries: 5, // Increased retries for better reliability
+                preflightCommitment: 'processed'
             });
         } catch (sendError: any) {
-            console.log('⚠️  First send attempt failed, trying with preflight...');
+            console.log('⚠️  First send attempt failed, retrying with fresh blockhash...');
+            // Get a fresh blockhash and retry
+            const { blockhash: newBlockhash, lastValidBlockHeight: newLastValidBlockHeight } = 
+                await connection.getLatestBlockhash('processed');
+            tx.recentBlockhash = newBlockhash;
+            tx.sign(botWallet);
+            
             signature = await connection.sendRawTransaction(tx.serialize(), {
                 skipPreflight: false,
-                preflightCommitment: 'confirmed',
-                maxRetries: 3
+                preflightCommitment: 'processed',
+                maxRetries: 5
             });
         }
 
         console.log(`✅ Transaction sent: ${signature}`);
         console.log(`   Explorer: https://solscan.io/tx/${signature}`);
 
-        // Confirm transaction
+        // Verify transaction status (non-blocking approach)
         try {
-            await connection.confirmTransaction(
+            // Use processed commitment for faster confirmation
+            const confirmation = await connection.confirmTransaction(
                 { signature, blockhash, lastValidBlockHeight },
-                'confirmed'
+                'processed' // Use 'processed' for faster confirmation
             );
+            
+            if (confirmation.value.err) {
+                throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+            }
+            
             console.log('🎉 Transaction confirmed!');
         } catch (confirmError: any) {
             const confirmMsg = confirmError?.message || String(confirmError);
-            if (confirmMsg.includes('TransactionExpiredTimeoutError') ||
-                confirmMsg.includes('not confirmed')) {
+            
+            // Check if transaction actually succeeded despite confirmation error
+            try {
+                const status = await connection.getSignatureStatus(signature);
+                if (status?.value?.confirmationStatus) {
+                    console.log(`✅ Transaction status: ${status.value.confirmationStatus}`);
+                    if (status.value.err) {
+                        throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
+                    }
+                    console.log('🎉 Transaction succeeded (verified via signature status)');
+                    return; // Success!
+                }
+            } catch (statusError) {
+                // Ignore status check errors
+            }
+            
+            if (confirmMsg.includes('TransactionExpiredBlockheightExceededError') ||
+                confirmMsg.includes('TransactionExpiredTimeoutError') ||
+                confirmMsg.includes('not confirmed') ||
+                confirmMsg.includes('block height exceeded')) {
                 console.warn('⚠️  Transaction confirmation timed out, but it may have succeeded');
                 console.warn(`   Check on explorer: https://solscan.io/tx/${signature}`);
+                // Don't throw - transaction might have succeeded
+                return;
             } else {
                 throw confirmError;
             }
