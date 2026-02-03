@@ -17,7 +17,7 @@ services:
       - key: TARGET_WALLET_ADDRESS
         sync: false
       - key: FIXED_BUY_AMOUNT
-        value: "0.1"
+        value: "0.02"
       - key: TARGET_TOKEN_MINT
         sync: false
       - key: MIN_SOL_BALANCE
