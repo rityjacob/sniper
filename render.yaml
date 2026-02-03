@@ -12,7 +12,7 @@ services:
         value: 10000
       - key: SOLANA_RPC_URL
         sync: false
-      - key: WALLET_PRIVATE_KEY
+      - key: BOT_WALLET_SECRET
         sync: false
       - key: TARGET_WALLET_ADDRESS
         sync: false
