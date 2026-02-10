@@ -25,7 +25,12 @@ app.use(bodyParser.urlencoded({ extended: true }));
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const TARGET_WALLET_ADDRESS = process.env.TARGET_WALLET_ADDRESS;
 const BOT_WALLET_SECRET = process.env.BOT_WALLET_SECRET;
-const FIXED_BUY_AMOUNT = parseFloat(process.env.FIXED_BUY_AMOUNT || '0.1'); // Default 0.1 SOL
+// Support both FIXED_BUY_AMOUNT and FIXED_SOL_PER_TRADE for compatibility
+const FIXED_BUY_AMOUNT = parseFloat(
+    process.env.FIXED_BUY_AMOUNT || 
+    process.env.FIXED_SOL_PER_TRADE || 
+    '0.02'
+); // Default 0.02 SOL
 
 if (!TARGET_WALLET_ADDRESS) {
     console.error('❌ TARGET_WALLET_ADDRESS environment variable is required');
@@ -45,6 +50,10 @@ const pumpAmmSdk = new PumpAmmSdk();
 console.log('🚀 Bot wallet initialized:', botWallet.publicKey.toString());
 console.log('🎯 Target wallet:', TARGET_WALLET_ADDRESS);
 console.log('💰 Fixed buy amount:', FIXED_BUY_AMOUNT, 'SOL');
+console.log('🔍 Env check - FIXED_BUY_AMOUNT:', process.env.FIXED_BUY_AMOUNT || 'not set');
+console.log('🔍 Env check - FIXED_SOL_PER_TRADE:', process.env.FIXED_SOL_PER_TRADE || 'not set');
+console.log('   (from env FIXED_BUY_AMOUNT:', process.env.FIXED_BUY_AMOUNT || 'not set, using default', ')');
+console.log('   Environment variable FIXED_BUY_AMOUNT:', process.env.FIXED_BUY_AMOUNT || 'not set (using default)');
 
 // 3. Create Webhook Endpoint
 app.post('/webhook', async (req: Request, res: Response) => {
@@ -278,6 +287,19 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         console.log('💰 Amount SOL:', amountSol);
         console.log('🤖 Bot wallet:', botWallet.publicKey.toString());
 
+        // Validate token mint
+        const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+        if (!tokenMint || tokenMint === WSOL_MINT) {
+            throw new Error('Invalid token mint - cannot trade SOL/WSOL on Pump.fun');
+        }
+
+        // Validate token mint format
+        try {
+            new PublicKey(tokenMint);
+        } catch (error) {
+            throw new Error(`Invalid token mint format: ${tokenMint}`);
+        }
+
         // Convert SOL to lamports (1 SOL = 1e9 lamports)
         const amountLamports = new BN(Math.floor(amountSol * 1e9));
         const tokenMintPubkey = new PublicKey(tokenMint);
@@ -285,6 +307,22 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         // Build SwapSolanaState using the online SDK helper
         const onlineSdk = new OnlinePumpAmmSdk(connection);
         const poolKey = canonicalPumpPoolPda(tokenMintPubkey);
+        
+        console.log(`   Pool key: ${poolKey.toString()}`);
+        
+        // Check if pool exists before trying to get swap state
+        try {
+            const poolAccountInfo = await connection.getAccountInfo(poolKey);
+            if (!poolAccountInfo) {
+                console.error(`❌ Pool account not found for token ${tokenMint}`);
+                console.error(`   This token may not be a Pump.fun token or the pool hasn't been created yet`);
+                return; // Don't throw - just log and return
+            }
+        } catch (checkError) {
+            console.error(`❌ Error checking pool account: ${checkError}`);
+            return; // Don't throw - just log and return
+        }
+        
         const swapState = await onlineSdk.swapSolanaState(poolKey, botWallet.publicKey);
 
         // Build buy instructions for a quote-in (SOL) swap with slippage 1%
@@ -308,17 +346,46 @@ async function executePumpFunBuy(tokenMint: string, amountSol: number) {
         await connection.confirmTransaction(signature, 'confirmed');
         console.log('🎉 Buy transaction confirmed!');
         
-    } catch (error) {
-        console.error('❌ Pump.fun buy failed:', error);
-        
-        // Retry logic for common errors
+    } catch (error: any) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes('pool') || errorMessage.includes('not ready')) {
-            console.log('🔄 Pool not ready, retrying in 2 seconds...');
+        
+        // Check if pool doesn't exist (non-retryable)
+        if (errorMessage.includes('Pool account not found') ||
+            errorMessage.includes('AccountNotFound') ||
+            errorMessage.includes('not found')) {
+            console.error(`❌ Pool account not found for token ${tokenMint}`);
+            console.error(`   This token may not be a Pump.fun token or the pool hasn't been created yet`);
+            return; // Don't retry - pool doesn't exist
+        }
+        
+        // Check for rate limiting (429 errors) - don't retry immediately
+        if (errorMessage.includes('429') || 
+            errorMessage.includes('Too Many Requests') ||
+            errorMessage.includes('max usage reached')) {
+            console.error('❌ RPC rate limit reached - skipping retry to avoid further rate limiting');
+            console.error('   Consider upgrading your RPC plan or reducing transaction frequency');
+            return; // Don't retry - will cause more rate limiting
+        }
+        
+        console.error('❌ Pump.fun buy failed:', errorMessage);
+        
+        // Check for ConstraintMut error (0x7d0) - pool is being updated, retry with delay
+        const isConstraintMut = errorMessage.includes('ConstraintMut') || 
+                                 errorMessage.includes('0x7d0') ||
+                                 (error.transactionLogs && error.transactionLogs.some((log: string) => 
+                                     log.includes('ConstraintMut') || log.includes('0x7d0')));
+        
+        // Retry logic for retryable errors (pool not ready, ConstraintMut, etc.)
+        if (isConstraintMut || 
+            (errorMessage.includes('pool') && !errorMessage.includes('not found')) ||
+            errorMessage.includes('not ready')) {
+            console.log('🔄 Pool may be updating (ConstraintMut), retrying in 3 seconds...');
             setTimeout(() => {
                 executePumpFunBuy(tokenMint, amountSol);
-            }, 2000);
+            }, 3000); // Increased delay to 3 seconds
         } else {
+            // For other errors, don't retry to avoid rate limiting
+            console.error('   Not retrying - error may be permanent');
             throw error;
         }
     }
