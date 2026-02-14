@@ -13,8 +13,22 @@ export interface HeliusTransactionEvent {
   feePayer?: string;
   slot?: number;
   blockTime?: number;
-  nativeTransfers?: unknown[];
-  tokenTransfers?: unknown[];
+  nativeTransfers?: NativeTransfer[];
+  tokenTransfers?: TokenTransfer[];
+  [key: string]: unknown;
+}
+
+export interface NativeTransfer {
+  amount: number;
+  fromUserAccount: string;
+  toUserAccount: string;
+}
+
+export interface TokenTransfer {
+  mint: string;
+  fromUserAccount: string;
+  toUserAccount: string;
+  tokenAmount: number;
   [key: string]: unknown;
 }
 

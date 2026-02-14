@@ -1,4 +1,6 @@
 import { Router, Request, Response } from "express";
+import type { HeliusTransactionEvent } from "./types/helius.js";
+import { processSwapTransaction, onBuyTransaction } from "./swap-processor.js";
 
 export function createWebhookRouter(): Router {
   const router = Router();
@@ -16,8 +18,28 @@ export function createWebhookRouter(): Router {
       });
     }
 
-    // Display webhook content (for debugging/monitoring)
-    console.log("[Helius Webhook] Received:", JSON.stringify(content, null, 2));
+    const transactions: HeliusTransactionEvent[] = Array.isArray(content) ? content : [content];
+
+    for (const tx of transactions) {
+      const summary = processSwapTransaction(tx);
+      if (summary) {
+        console.log("[Helius SWAP]", {
+          signature: summary.signature,
+          type: summary.type,
+          source: summary.source,
+          slot: summary.slot,
+          feePayer: summary.feePayer,
+          tokenTransfers: summary.tokenTransfers,
+          nativeTransfers: summary.nativeTransfers,
+          mint: summary.mint,
+          side: summary.side,
+        });
+
+        if (summary.side === "BUY") {
+          onBuyTransaction();
+        }
+      }
+    }
 
     const response = {
       received: true,
