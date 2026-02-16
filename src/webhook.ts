@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import type { HeliusTransactionEvent } from "./types/helius.js";
-import { processSwapTransaction, onBuyTransaction } from "./swap-processor.js";
+import { processSwapTransaction, onBuyTransaction, isTargetWalletInvolved } from "./swap-processor.js";
 
 export function createWebhookRouter(): Router {
   const router = Router();
@@ -35,7 +35,7 @@ export function createWebhookRouter(): Router {
           side: summary.side,
         });
 
-        if (summary.side === "BUY") {
+        if (summary.side === "BUY" && isTargetWalletInvolved(summary)) {
           onBuyTransaction();
         }
       }

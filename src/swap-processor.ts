@@ -1,6 +1,7 @@
 import type { HeliusTransactionEvent, TokenTransfer } from "./types/helius.js";
 
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
+const TARGET_WALLET = process.env.TARGET_WALLET ?? "DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm";
 
 export type SwapSide = "BUY" | "SELL";
 
@@ -54,6 +55,17 @@ export function processSwapTransaction(tx: HeliusTransactionEvent): SwapSummary 
     mint,
     side,
   };
+}
+
+export function isTargetWalletInvolved(summary: SwapSummary): boolean {
+  if (summary.feePayer === TARGET_WALLET) return true;
+  for (const t of summary.tokenTransfers) {
+    if (t.fromUserAccount === TARGET_WALLET || t.toUserAccount === TARGET_WALLET) return true;
+  }
+  for (const n of summary.nativeTransfers) {
+    if (n.fromUserAccount === TARGET_WALLET || n.toUserAccount === TARGET_WALLET) return true;
+  }
+  return false;
 }
 
 export function onBuyTransaction(): void {
