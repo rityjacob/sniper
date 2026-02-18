@@ -72,6 +72,19 @@ export function getTraderWalletAddress(): string {
   }
 }
 
+export function getCopyTradeConfig(): {
+  buyAmountSol: number;
+  slippage: number;
+} {
+  const lamports =
+    Number(process.env.BUY_AMOUNT_LAMPORTS) || DEFAULT_BUY_LAMPORTS;
+  const slippage = Number(process.env.SLIPPAGE) || DEFAULT_SLIPPAGE;
+  return {
+    buyAmountSol: lamports / 1e9,
+    slippage,
+  };
+}
+
 export async function executeCopyTrade(summary: SwapSummary): Promise<void> {
   const mint = summary.mint;
   if (!mint) {
