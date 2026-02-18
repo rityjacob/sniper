@@ -36,7 +36,7 @@ export function createWebhookRouter(): Router {
         });
 
         if (summary.side === "BUY" && isTargetWalletInvolved(summary)) {
-          onBuyTransaction();
+          void onBuyTransaction(summary);
         }
       }
     }

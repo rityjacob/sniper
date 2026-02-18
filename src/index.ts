@@ -1,5 +1,7 @@
+import "dotenv/config";
 import express from "express";
 import { createWebhookRouter } from "./webhook.js";
+import { getTraderWalletAddress } from "./copy-trade.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3000;
@@ -34,6 +36,10 @@ function startKeepAlivePing(): void {
 }
 
 app.listen(PORT, () => {
+  const traderWallet = getTraderWalletAddress();
+  const targetWallet = process.env.TARGET_WALLET ?? "DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm";
   console.log(`Server running on port ${PORT}`);
+  console.log(`Trader wallet: ${traderWallet}`);
+  console.log(`Target wallet: ${targetWallet}`);
   startKeepAlivePing();
 });

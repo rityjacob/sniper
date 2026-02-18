@@ -32,6 +32,18 @@ export interface TokenTransfer {
   [key: string]: unknown;
 }
 
+export interface SwapSummary {
+  signature: string;
+  type: string;
+  source: string;
+  slot: number;
+  feePayer: string;
+  tokenTransfers: TokenTransfer[];
+  nativeTransfers: { amount: number; fromUserAccount: string; toUserAccount: string }[];
+  mint: string | null;
+  side: "BUY" | "SELL";
+}
+
 export interface AccountData {
   account: string;
   nativeBalanceChange?: number;

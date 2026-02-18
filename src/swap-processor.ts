@@ -1,21 +1,11 @@
-import type { HeliusTransactionEvent, TokenTransfer } from "./types/helius.js";
+import type { HeliusTransactionEvent, SwapSummary, TokenTransfer } from "./types/helius.js";
+import { executeCopyTrade } from "./copy-trade.js";
 
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 const TARGET_WALLET = process.env.TARGET_WALLET ?? "DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm";
 
 export type SwapSide = "BUY" | "SELL";
-
-export interface SwapSummary {
-  signature: string;
-  type: string;
-  source: string;
-  slot: number;
-  feePayer: string;
-  tokenTransfers: TokenTransfer[];
-  nativeTransfers: { amount: number; fromUserAccount: string; toUserAccount: string }[];
-  mint: string | null;
-  side: SwapSide;
-}
+export type { SwapSummary } from "./types/helius.js";
 
 function getTradedTokenMint(tx: HeliusTransactionEvent): string | null {
   const transfers = tx.tokenTransfers ?? [];
@@ -68,6 +58,15 @@ export function isTargetWalletInvolved(summary: SwapSummary): boolean {
   return false;
 }
 
-export function onBuyTransaction(): void {
-  console.log("Buy triggered");
+export async function onBuyTransaction(summary: SwapSummary): Promise<void> {
+  try {
+    await executeCopyTrade(summary);
+    console.log("[CopyTrade] Buy executed successfully");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[CopyTrade] Couldn't do a copy trade:", message);
+    if (err instanceof Error && err.stack) {
+      console.error(err.stack);
+    }
+  }
 }
