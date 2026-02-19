@@ -19,7 +19,7 @@ const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 
 // Default: 0.02 SOL per copy trade
 const DEFAULT_BUY_LAMPORTS = 20_000_000;
-const DEFAULT_SLIPPAGE = 25; // 25% (SDK uses 1 = 1%)
+const DEFAULT_SLIPPAGE = 40; // 40% (SDK uses 1 = 1%)
 
 function getWalletKeypair(): Keypair {
   const pk = process.env.WALLET_PK;
@@ -110,7 +110,7 @@ export async function executeCopyTrade(summary: SwapSummary): Promise<void> {
 
   const quoteAmount = new BN(lamports);
 
-  // Skip if current price is >25% worse than target's buy price
+  // Skip if current price is >40% worse than target's buy price
   const targetInfo = getTargetBuyInfo(summary);
   if (
     targetInfo &&
@@ -120,7 +120,7 @@ export async function executeCopyTrade(summary: SwapSummary): Promise<void> {
     const targetTokensPerSol =
       targetInfo.tokensReceived / (targetInfo.solLamports / 1e9);
     const ourSolAmount = lamports / 1e9;
-    const minTokensRequired = targetTokensPerSol * ourSolAmount * 0.75;
+    const minTokensRequired = targetTokensPerSol * ourSolAmount * 0.6;
 
     const { base } = buyQuoteInput({
       quote: quoteAmount,
