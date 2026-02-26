@@ -5,6 +5,7 @@ import {
   Transaction,
   SendOptions,
   ComputeBudgetProgram,
+  VersionedTransaction,
 } from "@solana/web3.js";
 import bs58 from "bs58";
 import BN from "bn.js";
@@ -54,10 +55,20 @@ function getTargetBuyInfo(
   const feePayer = summary.feePayer;
   let solLamports = 0;
 
-  for (const n of summary.nativeTransfers) {
-    if (n.fromUserAccount === feePayer) {
-      solLamports += n.amount;
+  // SOL spent is often represented as WSOL (SPL) transfers in swap events (esp. Pump AMM).
+  // We count both:
+  // - WSOL outflow from the fee payer (actual swap input)
+  // - native lamports outflow from the fee payer (tips/rent/fees)
+  //
+  // This intentionally errs on the side of being less strict to avoid false "price moved" skips.
+  for (const t of summary.tokenTransfers) {
+    if (t.mint === WRAPPED_SOL_MINT && t.fromUserAccount === feePayer) {
+      solLamports += Math.round(t.tokenAmount * 1e9);
     }
+  }
+
+  for (const n of summary.nativeTransfers) {
+    if (n.fromUserAccount === feePayer) solLamports += n.amount;
   }
 
   for (const t of summary.tokenTransfers) {
@@ -91,6 +102,108 @@ export function getCopyTradeConfig(): {
   };
 }
 
+async function confirmTransactionInBackground(
+  connection: Connection,
+  signature: string,
+  label: string
+): Promise<void> {
+  const maxAttempts = 5;
+  for (let i = 0; i < maxAttempts; i++) {
+    const status = await connection.getSignatureStatus(signature);
+    if (
+      status.value?.confirmationStatus === "confirmed" ||
+      status.value?.confirmationStatus === "finalized"
+    ) {
+      console.log(`${label} confirmed:`, signature);
+      return;
+    }
+    if (status.value?.err) {
+      console.error(`${label} failed:`, signature, status.value.err);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  console.warn(`${label} confirmation timeout (tx may still land):`, signature);
+}
+
+function isPumpSwap(summary: SwapSummary): boolean {
+  const s = (summary.source ?? "").toLowerCase();
+  return (
+    s === "pump" ||
+    s === "pump.fun" ||
+    s.includes("pump")
+  );
+}
+
+async function executeJupiterBuy(
+  connection: Connection,
+  wallet: Keypair,
+  mint: string,
+  lamports: number,
+  slippagePercent: number
+): Promise<string> {
+  const inputMint = WRAPPED_SOL_MINT;
+  const outputMint = mint;
+
+  const slippageBps = Math.round(slippagePercent * 100);
+
+  const quoteUrl = new URL("https://quote-api.jup.ag/v6/quote");
+  quoteUrl.searchParams.set("inputMint", inputMint);
+  quoteUrl.searchParams.set("outputMint", outputMint);
+  quoteUrl.searchParams.set("amount", lamports.toString());
+  quoteUrl.searchParams.set("slippageBps", slippageBps.toString());
+
+  const quoteRes = await fetch(quoteUrl.toString());
+  if (!quoteRes.ok) {
+    const text = await quoteRes.text();
+    throw new Error(
+      `Jupiter quote failed: ${quoteRes.status} ${quoteRes.statusText} ${text}`
+    );
+  }
+  const quoteResponse = await quoteRes.json();
+
+  const swapRes = await fetch("https://api.jup.ag/swap/v1/swap", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      quoteResponse,
+      userPublicKey: wallet.publicKey.toBase58(),
+      wrapAndUnwrapSol: true,
+      dynamicComputeUnitLimit: true,
+      prioritizationFeeLamports: {
+        priorityLevelWithMaxLamports: {
+          priorityLevel: "veryHigh",
+          maxLamports: PRIORITY_FEE_LAMPORTS,
+          global: false,
+        },
+      },
+    }),
+  });
+
+  if (!swapRes.ok) {
+    const text = await swapRes.text();
+    throw new Error(
+      `Jupiter swap build failed: ${swapRes.status} ${swapRes.statusText} ${text}`
+    );
+  }
+  const swapJson = await swapRes.json();
+  const { swapTransaction } = swapJson as { swapTransaction?: string };
+  if (!swapTransaction) {
+    throw new Error("Jupiter swap build returned no transaction");
+  }
+
+  const rawTx = Buffer.from(swapTransaction, "base64");
+  const jupTx = VersionedTransaction.deserialize(rawTx);
+  jupTx.sign([wallet]);
+
+  const signature = await connection.sendRawTransaction(jupTx.serialize(), {
+    skipPreflight: true,
+    maxRetries: 2,
+  });
+
+  return signature;
+}
+
 export async function executeCopyTrade(summary: SwapSummary): Promise<void> {
   const mint = summary.mint;
   if (!mint) {
@@ -103,6 +216,30 @@ export async function executeCopyTrade(summary: SwapSummary): Promise<void> {
 
   const wallet = getWalletKeypair();
   const connection = getConnection();
+
+  // Non-Pump sources (e.g. Meteora, Jupiter, Raydium) use Jupiter aggregator.
+  if (!isPumpSwap(summary)) {
+    const signature = await executeJupiterBuy(
+      connection,
+      wallet,
+      mint,
+      lamports,
+      slippage
+    );
+    console.log(
+      "[CopyTrade] Jupiter-based swap sent (source:",
+      summary.source,
+      "):",
+      signature
+    );
+    void confirmTransactionInBackground(
+      connection,
+      signature,
+      "[CopyTrade] Jupiter-based swap"
+    );
+    return;
+  }
+
   const pumpAmmSdk = new PumpAmmSdk();
   const onlineSdk = new OnlinePumpAmmSdk(connection);
 
@@ -198,23 +335,9 @@ export async function executeCopyTrade(summary: SwapSummary): Promise<void> {
   console.log("[CopyTrade] Swap sent:", signature);
 
   // Confirm in background so we return fast; webhook isn't blocked.
-  void (async () => {
-    const maxAttempts = 30;
-    for (let i = 0; i < maxAttempts; i++) {
-      const status = await connection.getSignatureStatus(signature);
-      if (
-        status.value?.confirmationStatus === "confirmed" ||
-        status.value?.confirmationStatus === "finalized"
-      ) {
-        console.log("[CopyTrade] Swap confirmed:", signature);
-        return;
-      }
-      if (status.value?.err) {
-        console.error("[CopyTrade] Swap failed:", signature, status.value.err);
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-    console.warn("[CopyTrade] Confirmation timeout (tx may still land):", signature);
-  })();
+  void confirmTransactionInBackground(
+    connection,
+    signature,
+    "[CopyTrade] Swap"
+  );
 }
