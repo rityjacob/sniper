@@ -126,6 +126,31 @@ async function confirmTransactionInBackground(
   console.warn(`${label} confirmation timeout (tx may still land):`, signature);
 }
 
+async function fetchWithRetries(
+  url: string,
+  init: RequestInit | undefined,
+  label: string,
+  retries = 2
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      return res;
+    } catch (err) {
+      lastErr = err;
+      const message =
+        err instanceof Error
+          ? `${err.message}${(err as any).cause ? ` (cause: ${String((err as any).cause)})` : ""}`
+          : String(err);
+      console.error(`[CopyTrade] ${label} fetch failed (attempt ${attempt + 1}/${retries + 1}):`, message);
+      if (attempt === retries) throw err;
+      await new Promise((r) => setTimeout(r, 150 * (attempt + 1)));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 function isPumpSwap(summary: SwapSummary): boolean {
   const s = (summary.source ?? "").toLowerCase();
   return (
@@ -153,7 +178,16 @@ async function executeJupiterBuy(
   quoteUrl.searchParams.set("amount", lamports.toString());
   quoteUrl.searchParams.set("slippageBps", slippageBps.toString());
 
-  const quoteRes = await fetch(quoteUrl.toString());
+  const quoteRes = await fetchWithRetries(
+    quoteUrl.toString(),
+    {
+      method: "GET",
+      headers: {
+        "User-Agent": "sniper-copy-trade/1.0",
+      },
+    },
+    "Jupiter quote"
+  );
   if (!quoteRes.ok) {
     const text = await quoteRes.text();
     throw new Error(
@@ -162,23 +196,30 @@ async function executeJupiterBuy(
   }
   const quoteResponse = await quoteRes.json();
 
-  const swapRes = await fetch("https://api.jup.ag/swap/v1/swap", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      quoteResponse,
-      userPublicKey: wallet.publicKey.toBase58(),
-      wrapAndUnwrapSol: true,
-      dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: {
-        priorityLevelWithMaxLamports: {
-          priorityLevel: "veryHigh",
-          maxLamports: PRIORITY_FEE_LAMPORTS,
-          global: false,
-        },
+  const swapRes = await fetchWithRetries(
+    "https://api.jup.ag/swap/v1/swap",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "sniper-copy-trade/1.0",
       },
-    }),
-  });
+      body: JSON.stringify({
+        quoteResponse,
+        userPublicKey: wallet.publicKey.toBase58(),
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: {
+          priorityLevelWithMaxLamports: {
+            priorityLevel: "veryHigh",
+            maxLamports: PRIORITY_FEE_LAMPORTS,
+            global: false,
+          },
+        },
+      }),
+    },
+    "Jupiter swap build"
+  );
 
   if (!swapRes.ok) {
     const text = await swapRes.text();
