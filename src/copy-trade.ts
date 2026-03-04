@@ -49,7 +49,7 @@ function getConnection(): Connection {
   return new Connection(rpcUrl);
 }
 
-function getTargetBuyInfo(
+export function getTargetBuyInfo(
   summary: SwapSummary
 ): { solLamports: number; tokensReceived: number } | null {
   const feePayer = summary.feePayer;
