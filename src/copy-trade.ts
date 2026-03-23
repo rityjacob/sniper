@@ -22,6 +22,8 @@ const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 // Default: 0.02 SOL per copy trade
 const DEFAULT_BUY_LAMPORTS = 20_000_000;
 const DEFAULT_SLIPPAGE = 40; // 40% (SDK uses 1 = 1%)
+// Cap to avoid Pump AMM instruction overflow (custom error 6023)
+const MAX_PUMP_SLIPPAGE_PERCENT = 50;
 // Price guard: allow up to 100% worse than target (0.5 = 50% of target's rate)
 const DEFAULT_PRICE_GUARD_FACTOR = 0.5; // 0.5 = allow 100% worse, 0.6 = allow 40% worse, 0.75 = allow 25% worse
 // Priority fee: 0.0019 SOL per trade (~130k CU → microLamports so total ≈ 0.0019 SOL)
@@ -110,15 +112,16 @@ async function confirmTransactionInBackground(
   const maxAttempts = 5;
   for (let i = 0; i < maxAttempts; i++) {
     const status = await connection.getSignatureStatus(signature);
+    // Check execution error first: confirmed/finalized txs can still have failed
+    if (status.value?.err) {
+      console.error(`${label} failed:`, signature, status.value.err);
+      return;
+    }
     if (
       status.value?.confirmationStatus === "confirmed" ||
       status.value?.confirmationStatus === "finalized"
     ) {
       console.log(`${label} confirmed:`, signature);
-      return;
-    }
-    if (status.value?.err) {
-      console.error(`${label} failed:`, signature, status.value.err);
       return;
     }
     await new Promise((r) => setTimeout(r, 1000));
@@ -253,7 +256,11 @@ export async function executeCopyTrade(summary: SwapSummary): Promise<void> {
 
   const lamports =
     Number(process.env.BUY_AMOUNT_LAMPORTS) || DEFAULT_BUY_LAMPORTS;
-  const slippage = Number(process.env.SLIPPAGE) || DEFAULT_SLIPPAGE;
+  let slippage = Number(process.env.SLIPPAGE) || DEFAULT_SLIPPAGE;
+  // Cap Pump AMM slippage to avoid instruction overflow (error 6023)
+  if (isPumpSwap(summary) && slippage > MAX_PUMP_SLIPPAGE_PERCENT) {
+    slippage = MAX_PUMP_SLIPPAGE_PERCENT;
+  }
 
   const wallet = getWalletKeypair();
   const connection = getConnection();

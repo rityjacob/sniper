@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import type { HeliusTransactionEvent } from "./types/helius.js";
-import { processSwapTransaction, onBuyTransaction, isTargetWalletInvolved } from "./swap-processor.js";
+import { processSwapTransaction, onBuyTransaction, shouldCopyBuy } from "./swap-processor.js";
 
 export function createWebhookRouter(): Router {
   const router = Router();
@@ -35,8 +35,22 @@ export function createWebhookRouter(): Router {
           side: summary.side,
         });
 
-        if (summary.side === "BUY" && isTargetWalletInvolved(summary)) {
+        const copyDecision = shouldCopyBuy(summary);
+        if (copyDecision.shouldCopy) {
+          console.log("[CopyTrade] Triggering buy", {
+            signature: summary.signature,
+            mint: summary.mint,
+            reason: copyDecision.reason,
+          });
           void onBuyTransaction(summary);
+        } else {
+          console.log("[CopyTrade] Skipping buy", {
+            signature: summary.signature,
+            mint: summary.mint,
+            side: summary.side,
+            reason: copyDecision.reason,
+            feePayer: summary.feePayer,
+          });
         }
       }
     }

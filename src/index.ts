@@ -40,11 +40,13 @@ app.listen(PORT, () => {
   const targetWallet =
     process.env.TARGET_WALLET ??
     "DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm";
+  const copyAllBuys = (process.env.COPY_ALL_BUYS ?? "").toLowerCase() === "true";
   const { buyAmountSol, slippage } = getCopyTradeConfig();
 
   console.log(`Server running on port ${PORT}`);
   console.log(`Trader wallet: ${traderWallet}`);
   console.log(`Target wallet: ${targetWallet}`);
+  console.log(`Copy all BUY swaps: ${copyAllBuys}`);
   console.log(`Buy amount: ${buyAmountSol} SOL`);
   console.log(`Slippage: ${slippage}%`);
   startKeepAlivePing();

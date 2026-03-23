@@ -60,6 +60,23 @@ export function isTargetWalletInvolved(summary: SwapSummary): boolean {
   return false;
 }
 
+export function shouldCopyBuy(summary: SwapSummary): { shouldCopy: boolean; reason: string } {
+  if (summary.side !== "BUY") {
+    return { shouldCopy: false, reason: "not-a-buy" };
+  }
+
+  const copyAllBuys = (process.env.COPY_ALL_BUYS ?? "").toLowerCase() === "true";
+  if (copyAllBuys) {
+    return { shouldCopy: true, reason: "copy-all-buys-enabled" };
+  }
+
+  if (isTargetWalletInvolved(summary)) {
+    return { shouldCopy: true, reason: "target-wallet-involved" };
+  }
+
+  return { shouldCopy: false, reason: "target-wallet-not-involved" };
+}
+
 export async function onBuyTransaction(summary: SwapSummary): Promise<void> {
   try {
     await executeCopyTrade(summary);
