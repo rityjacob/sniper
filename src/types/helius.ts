@@ -32,16 +32,16 @@ export interface TokenTransfer {
   [key: string]: unknown;
 }
 
-export interface SwapSummary {
+/** A swap in which the target wallet bought a token with SOL. */
+export interface TargetBuy {
   signature: string;
-  type: string;
   source: string;
   slot: number;
-  feePayer: string;
-  tokenTransfers: TokenTransfer[];
-  nativeTransfers: { amount: number; fromUserAccount: string; toUserAccount: string }[];
-  mint: string | null;
-  side: "BUY" | "SELL";
+  mint: string;
+  /** WSOL + native SOL that left the target wallet (includes tips/fees). */
+  solSpentLamports: number;
+  /** UI amount (decimals applied) of `mint` received by the target. */
+  tokensReceived: number;
 }
 
 export interface AccountData {

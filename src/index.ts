@@ -1,13 +1,16 @@
 import "dotenv/config";
 import express from "express";
+import { getConfig } from "./config.js";
 import { createWebhookRouter } from "./webhook.js";
-import { getTraderWalletAddress, getCopyTradeConfig } from "./copy-trade.js";
+
+// Fail fast on missing/invalid env instead of on the first webhook.
+const config = getConfig();
 
 const app = express();
 const PORT = process.env.PORT ?? 3000;
 const PING_INTERVAL_MS = 14 * 60 * 1000; // 14 minutes
 
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
@@ -15,6 +18,7 @@ app.get("/health", (_req, res) => {
 
 app.use("/webhook", createWebhookRouter());
 
+// Render's free tier sleeps after 15 min idle; pinging ourselves keeps it awake.
 function startKeepAlivePing(): void {
   const baseUrl = process.env.RENDER_EXTERNAL_URL ?? process.env.SELF_URL;
   if (!baseUrl) {
@@ -36,18 +40,14 @@ function startKeepAlivePing(): void {
 }
 
 app.listen(PORT, () => {
-  const traderWallet = getTraderWalletAddress();
-  const targetWallet =
-    process.env.TARGET_WALLET ??
-    "DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm";
-  const copyAllBuys = (process.env.COPY_ALL_BUYS ?? "").toLowerCase() === "true";
-  const { buyAmountSol, slippage } = getCopyTradeConfig();
-
   console.log(`Server running on port ${PORT}`);
-  console.log(`Trader wallet: ${traderWallet}`);
-  console.log(`Target wallet: ${targetWallet}`);
-  console.log(`Copy all BUY swaps: ${copyAllBuys}`);
-  console.log(`Buy amount: ${buyAmountSol} SOL`);
-  console.log(`Slippage: ${slippage}%`);
+  console.log(`Trader wallet: ${config.wallet.publicKey.toBase58()}`);
+  console.log(`Target wallet: ${config.targetWallet}`);
+  console.log(`Buy amount: ${config.buyAmountLamports / 1e9} SOL`);
+  console.log(`Slippage: ${config.slippagePercent}%`);
+  console.log(`Max price above target: ${config.maxPriceIncreasePercent}%`);
+  console.log(`Priority fee: ${config.priorityFeeLamports / 1e9} SOL`);
+  console.log(`Jupiter API: ${config.jupiterApiUrl}`);
+  if (config.dryRun) console.log("DRY_RUN enabled: transactions are simulated, not sent");
   startKeepAlivePing();
 });

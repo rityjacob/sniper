@@ -1,91 +1,65 @@
-import type { HeliusTransactionEvent, SwapSummary, TokenTransfer } from "./types/helius.js";
-import { executeCopyTrade } from "./copy-trade.js";
+import type { HeliusTransactionEvent, TargetBuy } from "./types/helius.js";
 
-const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
+export const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 
-export type SwapSide = "BUY" | "SELL";
-export type { SwapSummary } from "./types/helius.js";
+export type ParseResult = { buy: TargetBuy } | { skip: string };
 
-function getTradedTokenMint(tx: HeliusTransactionEvent): string | null {
-  const transfers = tx.tokenTransfers ?? [];
-  const nonSolTransfer = transfers.find((t) => t.mint !== WRAPPED_SOL_MINT);
-  return nonSolTransfer?.mint ?? null;
-}
+/**
+ * Returns the target's buy if this event is a swap where the target wallet paid
+ * the fee and received a token without giving any (non-SOL) token away.
+ */
+export function parseTargetBuy(tx: HeliusTransactionEvent, targetWallet: string): ParseResult {
+  if (tx.type !== "SWAP") return { skip: `not-a-swap (${tx.type ?? "unknown"})` };
+  if (tx.feePayer !== targetWallet) return { skip: "target-not-fee-payer" };
 
-export function getSwapSide(tx: HeliusTransactionEvent): SwapSide {
-  const feePayer = tx.feePayer;
-  const transfers = tx.tokenTransfers ?? [];
+  const tokenTransfers = tx.tokenTransfers ?? [];
+  const nonSol = tokenTransfers.filter((t) => t.mint !== WRAPPED_SOL_MINT);
 
-  if (!feePayer) return "BUY"; // fallback
+  if (nonSol.some((t) => t.fromUserAccount === targetWallet)) {
+    return { skip: "target-sent-tokens (sell)" };
+  }
 
-  const nonSolTransfer = transfers.find((t) => t.mint !== WRAPPED_SOL_MINT);
-  if (!nonSolTransfer) return "BUY";
+  const received = nonSol.filter((t) => t.toUserAccount === targetWallet);
+  if (received.length === 0) return { skip: "no-token-received" };
 
-  if (nonSolTransfer.toUserAccount === feePayer) return "BUY";
-  if (nonSolTransfer.fromUserAccount === feePayer) return "SELL";
-
-  return "BUY"; // fallback
-}
-
-export function processSwapTransaction(tx: HeliusTransactionEvent): SwapSummary | null {
-  if (tx.type !== "SWAP") return null;
-
-  const side = getSwapSide(tx);
-  const mint = getTradedTokenMint(tx);
+  const mint = received[0].mint;
+  if (received.some((t) => t.mint !== mint)) return { skip: "multiple-tokens-received" };
+  const tokensReceived = received.reduce((sum, t) => sum + t.tokenAmount, 0);
 
   return {
-    signature: tx.signature ?? "",
-    type: tx.type ?? "",
-    source: tx.source ?? "",
-    slot: tx.slot ?? 0,
-    feePayer: tx.feePayer ?? "",
-    tokenTransfers: tx.tokenTransfers ?? [],
-    nativeTransfers: tx.nativeTransfers ?? [],
-    mint,
-    side,
+    buy: {
+      signature: tx.signature ?? "",
+      source: tx.source ?? "",
+      slot: tx.slot ?? 0,
+      mint,
+      solSpentLamports: getSolSpentLamports(tx, targetWallet),
+      tokensReceived,
+    },
   };
 }
 
-export function isTargetWalletInvolved(summary: SwapSummary): boolean {
-  const targetWallet =
-    process.env.TARGET_WALLET ?? "DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm";
-
-  if (summary.feePayer === targetWallet) return true;
-  for (const t of summary.tokenTransfers) {
-    if (t.fromUserAccount === targetWallet || t.toUserAccount === targetWallet) return true;
-  }
-  for (const n of summary.nativeTransfers) {
-    if (n.fromUserAccount === targetWallet || n.toUserAccount === targetWallet) return true;
-  }
-  return false;
-}
-
-export function shouldCopyBuy(summary: SwapSummary): { shouldCopy: boolean; reason: string } {
-  if (summary.side !== "BUY") {
-    return { shouldCopy: false, reason: "not-a-buy" };
+/**
+ * Lamports the target paid for the swap. Errs on the high side (tips, bot fees
+ * and token-account rent are included), which keeps the price guard lenient.
+ */
+export function getSolSpentLamports(tx: HeliusTransactionEvent, targetWallet: string): number {
+  // Best source: the wallet's net SOL balance change, minus the network fee.
+  // It doesn't double count when SOL is wrapped to WSOL and then swapped.
+  const account = tx.accountData?.find((a) => a.account === targetWallet);
+  if (account?.nativeBalanceChange !== undefined && account.nativeBalanceChange < 0) {
+    return Math.max(0, -account.nativeBalanceChange - (tx.fee ?? 0));
   }
 
-  const copyAllBuys = (process.env.COPY_ALL_BUYS ?? "").toLowerCase() === "true";
-  if (copyAllBuys) {
-    return { shouldCopy: true, reason: "copy-all-buys-enabled" };
-  }
-
-  if (isTargetWalletInvolved(summary)) {
-    return { shouldCopy: true, reason: "target-wallet-involved" };
-  }
-
-  return { shouldCopy: false, reason: "target-wallet-not-involved" };
-}
-
-export async function onBuyTransaction(summary: SwapSummary): Promise<void> {
-  try {
-    await executeCopyTrade(summary);
-    console.log("[CopyTrade] Buy executed successfully");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[CopyTrade] Couldn't do a copy trade:", message);
-    if (err instanceof Error && err.stack) {
-      console.error(err.stack);
+  // Fallback: WSOL sent, or native SOL sent when no WSOL was involved.
+  let wsolLamports = 0;
+  for (const t of tx.tokenTransfers ?? []) {
+    if (t.mint === WRAPPED_SOL_MINT && t.fromUserAccount === targetWallet) {
+      wsolLamports += Math.round(t.tokenAmount * 1e9);
     }
   }
+  let nativeLamports = 0;
+  for (const n of tx.nativeTransfers ?? []) {
+    if (n.fromUserAccount === targetWallet) nativeLamports += n.amount;
+  }
+  return wsolLamports > 0 ? wsolLamports : nativeLamports;
 }
