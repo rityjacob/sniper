@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Solana meme-coin copy-trading bot. An Express server receives Helius "enhanced transaction" webhooks. When a watched wallet makes a BUY swap, the bot buys the same token from its own wallet with real SOL on mainnet. Code that touches `executeCopyTrade` sends live transactions, so don't run it against a funded `WALLET_PK` unless the user asks you to.
+A Solana meme-coin copy-trading bot. An Express server receives Helius "enhanced transaction" webhooks. When a watched wallet makes a BUY swap, the bot buys the same token from its own wallet with real SOL on mainnet. Code that touches `executeCopyBuy` sends live transactions, so don't run it against a funded `WALLET_PK` unless the user asks you to. Set `DRY_RUN=true` to simulate instead of send.
 
 ## Git workflow
 
@@ -22,37 +22,41 @@ npm run build        # tsc -> dist/
 npm start            # node dist/index.js
 npm test             # vitest run (all tests)
 npm run test:watch
-npx vitest run src/swap-processor.test.ts       # single file
-npx vitest run -t "getTargetBuyInfo"            # tests matching a name
+npx vitest run src/__tests__/swap-processor.test.ts   # single file
+npx vitest run -t "parseTargetBuy"                    # tests matching a name
 ```
 
-There is no linter. Type-check with `npx tsc --noEmit`. This is an ESM project (`"type": "module"`, `NodeNext`), so relative imports need the `.js` extension (e.g. `./webhook.js`). `tsconfig.json` excludes only `src/__tests__/`, so the colocated `src/*.test.ts` files also get compiled into `dist/`.
+There is no linter. Type-check with `npx tsc --noEmit`. This is an ESM project (`"type": "module"`, `NodeNext`), so relative imports need the `.js` extension (e.g. `./webhook.js`). Tests live in `src/__tests__/`, which `tsconfig.json` excludes from the build; keep new tests there.
 
 ## Architecture
 
 The request flow is linear across the modules in `src/`:
 
-1. **`index.ts`** sets up Express with `/health` and `/webhook`, logs the config at startup, and runs a keep-alive self-ping every 14 minutes to `RENDER_EXTERNAL_URL`/`SELF_URL`. This stops Render's free tier from sleeping the service (see `render.yaml`).
-2. **`webhook.ts`** handles `POST /webhook/helius`. It accepts a single event or an array of events. For each one it calls `processSwapTransaction`, then `shouldCopyBuy`, and if the result is true it fires `onBuyTransaction` **without awaiting it**. The handler always responds 200 right away and echoes the payload. Trades run detached from the HTTP response.
-3. **`swap-processor.ts`** turns a Helius event into a `SwapSummary`. It ignores anything where `type !== "SWAP"`. The traded mint is the first non-WSOL token transfer. Side is decided by whether `feePayer` is the recipient (BUY) or the sender (SELL) of that transfer. `shouldCopyBuy` only copies BUYs where `TARGET_WALLET` appears as the fee payer or in any transfer, or copies every BUY when `COPY_ALL_BUYS=true`. `onBuyTransaction` catches and logs all trade errors.
-4. **`copy-trade.ts`** runs the trade. It routes on `summary.source`:
-   - **Pump sources** (source contains `"pump"`) use `@pump-fun/pump-swap-sdk` against the canonical Pump AMM pool PDA. This path is latency-optimized: the blockhash is fetched in parallel with building the trade, `skipPreflight` is on, and compute-budget instructions set a fixed priority fee. It also has a **price guard**: using `getTargetBuyInfo`, it derives the target's tokens-per-SOL rate and aborts if our quote is below `rate × PRICE_GUARD_FACTOR`. Slippage is capped at 50% on this path to avoid Pump AMM error 6023.
-   - **Everything else** (Raydium, Meteora, etc.) goes through the Jupiter quote API and then the Jupiter swap API, which returns a serialized versioned tx that we sign and send raw. This path has no price guard.
-   - Both paths confirm the transaction in the background (`confirmTransactionInBackground` polls 5×1s) and only log the result.
+1. **`index.ts`** loads `config.ts` at startup (fails fast on missing env), sets up Express with `/health` and `/webhook`, and runs a keep-alive self-ping every 14 minutes to `RENDER_EXTERNAL_URL`/`SELF_URL` so Render's free tier doesn't sleep the service (see `render.yaml`).
+2. **`webhook.ts`** handles `POST /webhook/helius` (single event or array). For each event: `parseTargetBuy` → dedupe by signature (`dedupe.ts`, in-memory, 10 min TTL) → `executeCopyBuy` fired **without awaiting**. It responds `{ received, count }` right away.
+3. **`swap-processor.ts`** `parseTargetBuy` returns a `TargetBuy` only when `type === "SWAP"`, the target is the fee payer, the target received exactly one non-WSOL mint and sent none. Otherwise it returns `{ skip: reason }`. `getSolSpentLamports` prefers the target's `accountData.nativeBalanceChange` (minus fee) to avoid double counting SOL wrapped to WSOL.
+4. **`trade/index.ts`** `executeCopyBuy` makes one `getMultipleAccountsInfo` call (mint, bonding curve PDA, canonical PumpSwap pool PDA) and picks the venue from on-chain state, not Helius `source`:
+   - **`pump-curve.ts`**: live, SOL-quoted bonding curve → `@pump-fun/pump-sdk` (`buyExactQuoteInV3Instructions`, or v2 for cashback coins). Imported via `trade/pump-sdk.ts` because the SDK's ESM build crashes under Node; it loads the CJS build with `createRequire`.
+   - **`pump-amm.ts`**: canonical PumpSwap pool exists → `@pump-fun/pump-swap-sdk` v2 (`buyQuoteInput` with `{ v2: true }`). SDK 1.x fails on-chain with 6062 `InvalidPoolV2`.
+   - **`jupiter.ts`**: everything else, `/swap/v1/quote` + `/swap/v1/swap`. Also the fallback if a Pump quote errors.
+   - **`price-guard.ts`**: every venue's quote is checked against the target's price; the buy is skipped if ours is more than `MAX_PRICE_INCREASE_PERCENT` higher.
+   - **`send.ts`**: compute budget (150k CU limit, price sized so the total priority fee equals `PRIORITY_FEE_LAMPORTS`), `skipPreflight` send, background confirmation (30×1s). With `DRY_RUN` it simulates instead.
 
-`src/types/helius.ts` defines the Helius payload and `SwapSummary` types.
+`src/types/helius.ts` defines the Helius payload and `TargetBuy` types.
 
 ## Environment variables
 
 | Var | Purpose / default |
 |---|---|
-| `WALLET_PK` | Trading wallet secret key: base58, a JSON byte array, or comma-separated bytes |
-| `RPC_URL` | Solana RPC, default public mainnet-beta |
-| `TARGET_WALLET` | Wallet to copy. The hardcoded default appears in **both** `index.ts` and `swap-processor.ts` |
-| `COPY_ALL_BUYS` | `"true"` copies every BUY swap in the webhook stream |
+| `TARGET_WALLET` | **Required.** Wallet to copy |
+| `WALLET_PK` | **Required.** Trading wallet secret key: base58, a JSON byte array, or comma-separated bytes |
+| `RPC_URL` | Solana RPC, default public mainnet-beta (use a paid RPC in production) |
 | `BUY_AMOUNT_LAMPORTS` | Default 20,000,000 (0.02 SOL) |
-| `SLIPPAGE` | Percent (1 = 1%), default 40 |
-| `PRICE_GUARD_FACTOR` | Default 0.5. Lower is looser; 0 effectively disables it (Pump path only) |
+| `SLIPPAGE` | Percent, default 25 (capped at 50 on PumpSwap) |
+| `MAX_PRICE_INCREASE_PERCENT` | Max % our price may exceed the target's, default 25 |
+| `PRIORITY_FEE_LAMPORTS` | Total priority fee per buy, default 1,900,000 |
+| `JUPITER_API_URL` / `JUPITER_API_KEY` | Default `https://lite-api.jup.ag`; with a key, `https://api.jup.ag` |
+| `DRY_RUN` | `"true"` simulates transactions instead of sending |
 | `PORT`, `RENDER_EXTERNAL_URL` / `SELF_URL` | Server port and keep-alive target |
 
-The priority fee (`PRIORITY_FEE_LAMPORTS`) and compute-unit limit are constants in `copy-trade.ts`, not env vars.
+Numeric env vars accept 0 (unset means default).
