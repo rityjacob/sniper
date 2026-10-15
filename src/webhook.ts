@@ -49,6 +49,7 @@ export function createWebhookRouter(): Router {
     }
 
     const transactions: HeliusTransactionEvent[] = Array.isArray(content) ? content : [content];
+    console.log(`[Webhook] received ${transactions.length} event(s)`);
     for (const tx of transactions) {
       try {
         handleEvent(tx);
