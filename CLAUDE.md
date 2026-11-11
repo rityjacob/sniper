@@ -44,6 +44,8 @@ The request flow is linear across the modules in `src/`:
 
 `src/types/helius.ts` defines the Helius payload and `TargetBuy` types.
 
+**Dashboard** (`src/dashboard/`, mounted at `/dashboard`; `/` redirects there). `logs.ts` mirrors `console.*` into an in-memory ring buffer (last 1000 entries); `installConsoleCapture()` runs first in `index.ts`. `router.ts` serves the page, `GET /api/status` (our SOL balance, cached 5s, plus target wallet and settings), `GET /api/logs?after=<id>`, and `GET /api/logs/stream` (Server-Sent Events, replays from `Last-Event-ID`). `page.ts` holds the HTML as a TS string so `tsc` ships it; insert log text with `textContent`, never `innerHTML`. The RPC `Connection` is shared through `rpc.ts`.
+
 ## Environment variables
 
 | Var | Purpose / default |
@@ -57,6 +59,7 @@ The request flow is linear across the modules in `src/`:
 | `PRIORITY_FEE_LAMPORTS` | Total priority fee per buy, default 1,900,000 |
 | `JUPITER_API_URL` / `JUPITER_API_KEY` | Default `https://lite-api.jup.ag`; with a key, `https://api.jup.ag` |
 | `DRY_RUN` | `"true"` simulates transactions instead of sending |
+| `DASHBOARD_TOKEN` | Optional. When set, `/dashboard` needs `?token=<value>` (or `Authorization: Bearer`) |
 | `PORT`, `RENDER_EXTERNAL_URL` / `SELF_URL` | Server port and keep-alive target |
 
 Numeric env vars accept 0 (unset means default).

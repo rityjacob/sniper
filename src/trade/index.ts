@@ -1,7 +1,8 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { PUMP_SDK, bondingCurvePda, isSolLikeQuoteMint } from "./pump-sdk.js";
 import { canonicalPumpPoolPda } from "@pump-fun/pump-swap-sdk";
 import { getConfig } from "../config.js";
+import { getConnection } from "../rpc.js";
 import type { TargetBuy } from "../types/helius.js";
 import { quoteJupiter } from "./jupiter.js";
 import { checkPrice } from "./price-guard.js";
@@ -18,13 +19,6 @@ const venues: Record<Venue, (ctx: BuyContext) => Promise<VenueQuote>> = {
   "pump-amm": quotePumpAmm,
   jupiter: quoteJupiter,
 };
-
-let connection: Connection | undefined;
-
-function getConnection(rpcUrl: string): Connection {
-  connection ??= new Connection(rpcUrl, "confirmed");
-  return connection;
-}
 
 /** Buys `buy.mint` with our wallet, on the same venue the token currently trades on. */
 export async function executeCopyBuy(buy: TargetBuy): Promise<string> {

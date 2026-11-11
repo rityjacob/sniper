@@ -12,6 +12,8 @@ export interface Config {
   jupiterApiUrl: string;
   jupiterApiKey: string | undefined;
   dryRun: boolean;
+  /** When set, the dashboard requires ?token=<value>. */
+  dashboardToken: string | undefined;
 }
 
 function numberEnv(name: string, fallback: number): number {
@@ -63,6 +65,7 @@ export function loadConfig(): Config {
     ).replace(/\/+$/, ""),
     jupiterApiKey,
     dryRun: (process.env.DRY_RUN ?? "").toLowerCase() === "true",
+    dashboardToken: process.env.DASHBOARD_TOKEN?.trim() || undefined,
   };
 }
 

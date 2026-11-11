@@ -1,7 +1,12 @@
 import "dotenv/config";
 import express from "express";
 import { getConfig } from "./config.js";
+import { createDashboardRouter } from "./dashboard/router.js";
+import { installConsoleCapture } from "./logs.js";
 import { createWebhookRouter } from "./webhook.js";
+
+// Mirror console output into the dashboard's log buffer before anything logs.
+installConsoleCapture();
 
 // Fail fast on missing/invalid env instead of on the first webhook.
 const config = getConfig();
@@ -17,6 +22,11 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/webhook", createWebhookRouter());
+app.use("/dashboard", createDashboardRouter());
+app.get("/", (req, res) => {
+  const query = req.originalUrl.indexOf("?");
+  res.redirect(`/dashboard${query >= 0 ? req.originalUrl.slice(query) : ""}`);
+});
 
 // Render's free tier sleeps after 15 min idle; pinging ourselves keeps it awake.
 function startKeepAlivePing(): void {
@@ -49,5 +59,8 @@ app.listen(PORT, () => {
   console.log(`Priority fee: ${config.priorityFeeLamports / 1e9} SOL`);
   console.log(`Jupiter API: ${config.jupiterApiUrl}`);
   if (config.dryRun) console.log("DRY_RUN enabled: transactions are simulated, not sent");
+  if (!config.dashboardToken) {
+    console.warn("DASHBOARD_TOKEN not set: /dashboard is open to anyone with the URL");
+  }
   startKeepAlivePing();
 });
