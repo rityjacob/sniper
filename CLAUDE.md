@@ -44,7 +44,7 @@ The request flow is linear across the modules in `src/`:
 
 `src/types/helius.ts` defines the Helius payload and `TargetBuy` types.
 
-**Dashboard** (`src/dashboard/`, mounted at `/dashboard`; `/` redirects there). `logs.ts` mirrors `console.*` into an in-memory ring buffer (last 1000 entries); `installConsoleCapture()` runs first in `index.ts`. `router.ts` serves the page, `GET /api/status` (our SOL balance, cached 5s, plus target wallet and settings), `GET /api/logs?after=<id>`, and `GET /api/logs/stream` (Server-Sent Events, replays from `Last-Event-ID`). `page.ts` holds the HTML as a TS string so `tsc` ships it; insert log text with `textContent`, never `innerHTML`. The RPC `Connection` is shared through `rpc.ts`.
+**Dashboard** (`src/dashboard/`, mounted at `/dashboard`; `/` redirects there). `logs.ts` mirrors `console.*` into an in-memory ring buffer (last 1000 entries); `installConsoleCapture()` runs first in `index.ts`. `router.ts` serves the page, `GET /api/status` (our SOL balance, cached 5s, plus target wallet and settings), `GET /api/holdings` (our SPL/Token-2022 balances valued with Jupiter's Price API v3 and named via Tokens API v2, cached 15s; balances still show if Jupiter fails), `GET /api/logs?after=<id>`, and `GET /api/logs/stream` (Server-Sent Events, replays from `Last-Event-ID`). `page.ts` holds the HTML as a TS string so `tsc` ships it; insert log text with `textContent`, never `innerHTML`. The RPC `Connection` is shared through `rpc.ts`.
 
 ## Environment variables
 

@@ -86,6 +86,28 @@ export const dashboardPage = /* html */ `<!doctype html>
   .stat.good .n { color: var(--good); }
   .stat.bad .n { color: var(--bad); }
 
+  .holdings { padding: 0; overflow: hidden; margin-bottom: 14px; }
+  .holdings .toolbar strong { margin-right: 4px; }
+  .total { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .total small { color: var(--muted); font-weight: 600; margin-left: 6px; }
+  .tbl-wrap { overflow-x: auto; max-height: 50vh; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 9px 14px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; border-bottom: 1px solid var(--border); }
+  td { border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+  tbody tr:hover { background: var(--row-hover); }
+  th:first-child, td:first-child { text-align: left; }
+  .tok { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .tok img, .tok .ph { width: 28px; height: 28px; border-radius: 50%; flex: none; object-fit: cover; background: var(--row-hover); }
+  .tok .ph { display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--muted); }
+  .tok .sym { font-weight: 700; }
+  .tok .sub { display: block; font-size: 11.5px; color: var(--muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .tok a { color: inherit; text-decoration: none; }
+  .tok a:hover .sym { color: var(--accent); }
+  td .sol { display: block; font-size: 11.5px; color: var(--muted); }
+  .nop { color: var(--muted); font-weight: 400; }
+  .warnline { padding: 8px 14px; font-size: 12px; color: var(--warn); border-bottom: 1px solid var(--border); }
+
   .logs { padding: 0; overflow: hidden; }
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px; border-bottom: 1px solid var(--border); }
   .seg { display: inline-flex; gap: 4px; }
@@ -113,6 +135,8 @@ export const dashboardPage = /* html */ `<!doctype html>
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
   @media (max-width: 520px) {
+    .col-price { display: none; }
+    th, td { padding: 8px 10px; }
     .row { grid-template-columns: 1fr; gap: 0; }
     .row .t, .row .lv { display: inline; }
     .balance { font-size: 26px; }
@@ -133,6 +157,7 @@ export const dashboardPage = /* html */ `<!doctype html>
     <div class="card">
       <div class="label">My wallet <span class="spacer"></span><button class="btn" id="refresh">Refresh</button></div>
       <div class="balance" id="balance">&ndash; <small>SOL</small></div>
+      <div class="muted" id="balanceUsd"></div>
       <div class="err" id="balanceErr" hidden></div>
       <div class="addr">
         <code id="wallet">&hellip;</code>
@@ -169,6 +194,23 @@ export const dashboardPage = /* html */ `<!doctype html>
     <div class="card stat bad"><div class="label">Failed / skipped</div><div class="n" id="sFail">0</div></div>
   </section>
 
+  <section class="card holdings">
+    <div class="toolbar">
+      <strong>Holdings</strong>
+      <span class="muted" id="hCount"></span>
+      <span class="spacer"></span>
+      <span class="total" id="hTotal"></span>
+      <button class="btn" id="hRefresh">Refresh</button>
+    </div>
+    <div class="warnline" id="hWarn" hidden></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Token</th><th>Quantity</th><th class="col-price">Price</th><th>Value</th></tr></thead>
+        <tbody id="hBody"><tr><td colspan="4" class="empty">Loading holdings&hellip;</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="card logs">
     <div class="toolbar">
       <strong>Logs</strong>
@@ -197,6 +239,34 @@ export const dashboardPage = /* html */ `<!doctype html>
   }
   function $(id) { return document.getElementById(id); }
   function sol(lamports) { return (lamports / 1e9).toLocaleString(undefined, { maximumFractionDigits: 6 }) + " SOL"; }
+  function usd(n) {
+    if (n === null || n === undefined) return null;
+    if (n > 0 && n < 0.01) return "<$0.01";
+    return "$" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function price(n) {
+    if (n >= 1) return "$" + n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    return "$" + Number(n.toPrecision(4)).toLocaleString(undefined, { maximumSignificantDigits: 4 });
+  }
+  function qty(n) {
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1e4) return (n / 1e3).toFixed(1) + "K";
+    return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  }
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  var solPriceUsd = null;
+  var lastBalanceLamports = null;
+  function showBalanceUsd() {
+    $("balanceUsd").textContent = lastBalanceLamports !== null && solPriceUsd
+      ? "\u2248 " + usd(lastBalanceLamports / 1e9 * solPriceUsd) + "  \u00b7  SOL " + price(solPriceUsd)
+      : "";
+  }
 
   // ---- status card ----
   var startedAt = null;
@@ -223,6 +293,8 @@ export const dashboardPage = /* html */ `<!doctype html>
         $("balance").append(whole + " ");
         var unit = document.createElement("small"); unit.textContent = "SOL";
         $("balance").append(unit);
+        lastBalanceLamports = s.balanceLamports;
+        showBalanceUsd();
       }
       $("balanceErr").hidden = !s.balanceError;
       $("balanceErr").textContent = s.balanceError ? "Balance unavailable: " + s.balanceError : "";
@@ -258,6 +330,91 @@ export const dashboardPage = /* html */ `<!doctype html>
     };
   });
 
+  // ---- holdings ----
+  function tokenCell(t) {
+    var td = el("td");
+    var wrap = el("a", "tok");
+    wrap.href = "https://solscan.io/token/" + t.mint;
+    wrap.target = "_blank";
+    wrap.rel = "noopener";
+    wrap.title = t.mint;
+    var label = t.symbol || (t.mint.slice(0, 4) + "\u2026" + t.mint.slice(-4));
+    var ph = el("span", "ph", label.slice(0, 2).toUpperCase());
+    if (t.icon) {
+      var img = document.createElement("img");
+      img.src = t.icon;
+      img.alt = "";
+      img.loading = "lazy";
+      img.referrerPolicy = "no-referrer";
+      img.onerror = function () { img.replaceWith(ph); };
+      wrap.append(img);
+    } else {
+      wrap.append(ph);
+    }
+    var text = el("span");
+    text.append(el("span", "sym", label));
+    text.append(el("span", "sub", t.name ? t.name : t.mint));
+    wrap.append(text);
+    td.append(wrap);
+    return td;
+  }
+
+  function loadHoldings() {
+    $("hRefresh").disabled = true;
+    fetch(api("holdings")).then(function (r) {
+      return r.json().then(function (body) {
+        if (!r.ok) throw new Error(body.error || ("HTTP " + r.status));
+        return body;
+      });
+    }).then(function (h) {
+      solPriceUsd = h.solPriceUsd;
+      showBalanceUsd();
+      $("hWarn").hidden = !h.priceError;
+      $("hWarn").textContent = h.priceError || "";
+      $("hCount").textContent = h.tokens.length + (h.tokens.length === 1 ? " token" : " tokens");
+      $("hTotal").textContent = "";
+      $("hTotal").append(usd(h.totalValueUsd) || "$0.00");
+      if (h.totalValueSol !== null) {
+        $("hTotal").append(el("small", null, h.totalValueSol.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " SOL"));
+      }
+
+      var body = $("hBody");
+      body.innerHTML = "";
+      if (!h.tokens.length) {
+        var tr0 = el("tr");
+        var td0 = el("td", "empty", "No tokens held yet. Copied buys will show up here.");
+        td0.colSpan = 4;
+        tr0.append(td0);
+        body.append(tr0);
+        return;
+      }
+      h.tokens.forEach(function (t) {
+        var tr = el("tr");
+        tr.append(tokenCell(t));
+        tr.append(el("td", null, qty(t.amount)));
+        tr.lastChild.title = t.amount.toLocaleString();
+        tr.append(el("td", "col-price", t.priceUsd === null ? "\u2013" : price(t.priceUsd)));
+        var v = el("td");
+        if (t.valueUsd === null) {
+          v.append(el("span", "nop", "No price"));
+        } else {
+          v.append(usd(t.valueUsd));
+          if (t.valueSol !== null) {
+            v.append(el("span", "sol", t.valueSol.toLocaleString(undefined, { maximumFractionDigits: 4 }) + " SOL"));
+          }
+        }
+        tr.append(v);
+        body.append(tr);
+      });
+    }).catch(function (err) {
+      $("hWarn").hidden = false;
+      $("hWarn").textContent = "Holdings unavailable: " + err.message;
+    }).then(function () { $("hRefresh").disabled = false; });
+  }
+  loadHoldings();
+  setInterval(loadHoldings, 30000);
+  $("hRefresh").onclick = loadHoldings;
+
   // ---- logs ----
   var all = [];
   var seen = {};
@@ -272,7 +429,7 @@ export const dashboardPage = /* html */ `<!doctype html>
     var m = e.message;
     if (m.indexOf("[Webhook] target buy") >= 0) stats.buys++;
     else if (/ buy sent:/.test(m)) stats.sent++;
-    else if (/ buy confirmed:/.test(m)) stats.ok++;
+    else if (/ buy confirmed:/.test(m)) { stats.ok++; if (Date.now() - e.time < 60000) setTimeout(loadHoldings, 16000); }
     else if (/failed on-chain|buy failed|not confirmed after/.test(m)) stats.fail++;
     $("sBuys").textContent = stats.buys;
     $("sSent").textContent = stats.sent;

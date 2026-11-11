@@ -3,6 +3,7 @@ import { NextFunction, Request, Response, Router } from "express";
 import { getConfig } from "../config.js";
 import { getLogs, subscribe } from "../logs.js";
 import { getConnection } from "../rpc.js";
+import { getHoldings } from "./holdings.js";
 import { dashboardPage } from "./page.js";
 
 const BALANCE_CACHE_MS = 5_000;
@@ -76,6 +77,14 @@ export function createDashboardRouter(): Router {
       priorityFeeLamports: config.priorityFeeLamports,
       startedAt,
     });
+  });
+
+  router.get("/api/holdings", async (_req, res) => {
+    try {
+      res.set("Cache-Control", "no-store").json(await getHoldings(getConfig()));
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   router.get("/api/logs", (req, res) => {
